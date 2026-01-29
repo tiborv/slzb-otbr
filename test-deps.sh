@@ -3,7 +3,10 @@
 # Dependency Test Script for SLZB-OTBR
 # Run this to verify all required dependencies are available in the image
 # =============================================================================
-set -e
+# set -e (disabled to allow accumulation of errors)
+
+# Ensure /usr/sbin is in path for otbr-agent/avahi-daemon
+export PATH=$PATH:/usr/sbin:/sbin
 
 PASS=0
 FAIL=0
@@ -13,10 +16,10 @@ check_command() {
     local desc=$2
     if command -v "$cmd" &> /dev/null; then
         echo "✅ $cmd: $desc"
-        ((PASS++))
+        ((PASS+=1))
     else
         echo "❌ $cmd: NOT FOUND - $desc"
-        ((FAIL++))
+        ((FAIL+=1))
     fi
 }
 
@@ -25,10 +28,10 @@ check_file() {
     local desc=$2
     if [ -f "$file" ] || [ -e "$file" ]; then
         echo "✅ $file: $desc"
-        ((PASS++))
+        ((PASS+=1))
     else
         echo "❌ $file: NOT FOUND - $desc"
-        ((FAIL++))
+        ((FAIL+=1))
     fi
 }
 
