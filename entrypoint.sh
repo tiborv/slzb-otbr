@@ -55,6 +55,10 @@ else
     log "Using provided infrastructure interface: $OT_INFRA_IF"
 fi
 
+# Set RCP device URL for s6-overlay managed otbr-agent
+# Adding bus-latency to handle networked socat jitter
+export OT_RCP_DEVICE="spinel+hdlc+uart://${SERIAL_DEVICE}?uart-baudrate=${BAUD_RATE}&bus-latency=50000"
+
 # -----------------------------------------------------------------------------
 # Step 3: Start socat bridge to networked radio
 # -----------------------------------------------------------------------------
