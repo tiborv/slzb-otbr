@@ -59,7 +59,14 @@ fi
 # Step 3: Start socat bridge to networked radio
 # -----------------------------------------------------------------------------
 log "Starting socat bridge to $SLZB_HOST:$SLZB_PORT..."
-socat -d -d pty,raw,echo=0,link=${SERIAL_DEVICE},ignoreeof tcp:${SLZB_HOST}:${SLZB_PORT} &
+# Run socat in a loop to auto-reconnect if link drops
+(
+    while true; do
+        socat -d -d pty,raw,echo=0,link=${SERIAL_DEVICE},ignoreeof tcp:${SLZB_HOST}:${SLZB_PORT},keepalive,nodelay,keepidle=10,keepintvl=10,keepcnt=3
+        log "WARNING: socat bridge exited, restarting in 1 second..."
+        sleep 1
+    done
+) &
 SOCAT_PID=$!
 
 # -----------------------------------------------------------------------------
