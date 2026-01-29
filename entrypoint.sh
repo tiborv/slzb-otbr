@@ -261,8 +261,13 @@ SOCAT_PID=$!
 # This is critical for Matter commissioning which relies on mDNS
 log "Starting Avahi mDNS daemon..."
 mkdir -p /var/run/avahi-daemon
-avahi-daemon --daemonize --no-chroot
-sleep 1  # Give Avahi time to initialize
+if avahi-daemon --daemonize --no-chroot 2>&1 | tee /tmp/avahi.log; then
+    log "Avahi daemon started successfully"
+    sleep 1  # Give Avahi time to initialize
+else
+    log "WARNING: Avahi failed to start (may already be running on host)"
+    log "mDNS hostname resolution may not work in this container"
+fi
 
 # -----------------------------------------------------------------------------
 # Step 6: Start OTBR (Main Process)
