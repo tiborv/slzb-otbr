@@ -54,8 +54,22 @@ check_command "nc" "Netcat for connectivity tests"
 
 echo ""
 echo "--- mDNS / Service Discovery ---"
-check_command "avahi-daemon" "mDNS daemon"
+check_command "avahi-daemon" "mDNS daemon (Legacy/Fallback)"
 check_command "avahi-browse" "mDNS browser tool"
+
+echo ""
+echo "--- Native mDNS Publisher ---"
+check_command "python3" "Python runtime"
+check_file "/usr/local/bin/mdns_publisher.py" "mDNS publisher script"
+
+# Check python module
+if python3 -c "import zeroconf" > /dev/null 2>&1; then
+    echo "✅ python-zeroconf: Installed"
+    ((PASS+=1))
+else
+    echo "❌ python-zeroconf: NOT INSTALLED"
+    ((FAIL+=1))
+fi
 
 echo ""
 echo "--- System Tools ---"
