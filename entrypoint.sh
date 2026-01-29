@@ -255,19 +255,20 @@ SOCAT_PID=$!
 ) &
 
 # -----------------------------------------------------------------------------
-# Step 5: Start Avahi mDNS daemon
+# Step 5: Start Avahi mDNS daemon (TEMPORARILY DISABLED FOR TESTING)
 # -----------------------------------------------------------------------------
 # Avahi must be started before OTBR to enable .local hostname resolution
 # This is critical for Matter commissioning which relies on mDNS
-log "Starting Avahi mDNS daemon..."
-mkdir -p /var/run/avahi-daemon
-if avahi-daemon --daemonize --no-chroot 2>&1 | tee /tmp/avahi.log; then
-    log "Avahi daemon started successfully"
-    sleep 1  # Give Avahi time to initialize
-else
-    log "WARNING: Avahi failed to start (may already be running on host)"
-    log "mDNS hostname resolution may not work in this container"
-fi
+# DISABLED: Testing if Avahi interferes with Matter SDK's built-in mDNS
+# log "Starting Avahi mDNS daemon..."
+# mkdir -p /var/run/avahi-daemon
+# if avahi-daemon --daemonize --no-chroot 2>&1 | tee /tmp/avahi.log; then
+#     log "Avahi daemon started successfully"
+#     sleep 1  # Give Avahi time to initialize
+# else
+#     log "WARNING: Avahi failed to start (may already be running on host)"
+#     log "mDNS hostname resolution may not work in this container"
+# fi
 
 # -----------------------------------------------------------------------------
 # Step 6: Start OTBR (Main Process)
