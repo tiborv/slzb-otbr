@@ -23,6 +23,10 @@ RUN apt-get update && \
 COPY entrypoint.sh /entrypoint.sh
 RUN chmod +x /entrypoint.sh
 
+# Copy dependency test script
+COPY test-deps.sh /test-deps.sh
+RUN chmod +x /test-deps.sh
+
 # =============================================================================
 # Environment Variables
 # =============================================================================

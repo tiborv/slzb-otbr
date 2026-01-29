@@ -62,6 +62,12 @@ jobs:
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
           provenance: false
+          load: ${{ matrix.platform == 'linux/amd64' }}  # Load for testing on amd64 runner
+
+      - name: Test dependencies
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.arch.outputs.suffix }} /test-deps.sh
 
   # Create multi-arch manifest after all arch builds complete
   manifest:
