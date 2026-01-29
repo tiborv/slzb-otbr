@@ -61,6 +61,7 @@ jobs:
           load: ${{ matrix.platform == 'linux/amd64' }} 
           push: false
           tags: slzb-otbr:test
+          cache-from: type=gha,scope=${{ matrix.platform }}
           provenance: false
           
       - name: Test dependencies
