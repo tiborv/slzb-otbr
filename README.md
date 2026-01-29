@@ -23,6 +23,37 @@ This image is designed for **SLZB MR-series** devices from [SMLight](https://sml
 
 ---
 
+## ⚠️ Border Router Discovery (MDNS_PUBLISH)
+
+**By default, this OTBR is hidden from other border routers and Thread-aware apps.**
+
+Thread devices can connect to multiple border routers for redundancy. For this to work, border routers must discover each other via **mDNS** (multicast DNS). This image has mDNS publishing **disabled by default** to prevent conflicts when running as a secondary OTBR.
+
+### What happens without `MDNS_PUBLISH=true`?
+
+| Scenario | Result |
+|----------|--------|
+| **Thread devices** | ✅ Work normally - connect via this OTBR |
+| **Home Assistant** | ✅ Works - uses REST API on port 8081 |
+| **Google Home / Apple Home** | ❌ Won't discover this OTBR |
+| **Multi-OTBR failover** | ❌ No automatic routing between OTBRs |
+
+### When to enable
+
+Enable `MDNS_PUBLISH=true` if you want:
+- 🔄 **Redundant border routers** - Thread devices can failover between OTBRs
+- 🏠 **Google/Apple discovery** - Native Thread integration in their apps
+- 📡 **Full Thread mesh** - All border routers coordinate routing
+
+```yaml
+environment:
+  MDNS_PUBLISH: "true"  # Enable border router discovery
+```
+
+> **Requires `network_mode: host`** for mDNS multicast to reach your LAN.
+
+---
+
 ## Understanding Thread TLV (The Dataset)
 
 ### What is TLV?
