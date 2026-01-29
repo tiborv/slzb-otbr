@@ -255,7 +255,17 @@ SOCAT_PID=$!
 ) &
 
 # -----------------------------------------------------------------------------
-# Step 5: Start OTBR (Main Process)
+# Step 5: Start Avahi mDNS daemon
+# -----------------------------------------------------------------------------
+# Avahi must be started before OTBR to enable .local hostname resolution
+# This is critical for Matter commissioning which relies on mDNS
+log "Starting Avahi mDNS daemon..."
+mkdir -p /var/run/avahi-daemon
+avahi-daemon --daemonize --no-chroot
+sleep 1  # Give Avahi time to initialize
+
+# -----------------------------------------------------------------------------
+# Step 6: Start OTBR (Main Process)
 # -----------------------------------------------------------------------------
 log "Starting OTBR (executing /init)..."
 # exec /init replaces the shell, satisfying s6-overlay's PID 1 requirement
