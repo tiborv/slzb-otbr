@@ -138,8 +138,8 @@ SOCAT_PID=$!
     }
 
     dataset_matches() {
-        local target_tlv=$(echo "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
-        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        local target_tlv=$(echo "$1" | tr -cd '0-9a-fA-F' | tr '[:upper:]' '[:lower:]')
+        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -cd '0-9a-fA-F' | tr '[:upper:]' '[:lower:]')
         
         [ -z "$target_tlv" ] && return 0
         
@@ -149,17 +149,23 @@ SOCAT_PID=$!
         fi
         
         # 2. Reordering check: Compare Active Timestamp (Tag 0e) and Network Key (Tag 05)
-        local target_ts=$(echo "$target_tlv" | grep -oiP '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
-        local current_ts=$(echo "$current_tlv" | grep -oiP '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
+        local target_ts=$(echo "$target_tlv" | grep -oiE '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
+        local current_ts=$(echo "$current_tlv" | grep -oiE '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
         
-        local target_key=$(echo "$target_tlv" | grep -oiP '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
-        local current_key=$(echo "$current_tlv" | grep -oiP '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
+        local target_key=$(echo "$target_tlv" | grep -oiE '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
+        local current_key=$(echo "$current_tlv" | grep -oiE '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
         
+        log "Comparing datasets..."
+        log "  Target TS: $target_ts | Current TS: $current_ts"
+        log "  Target Key: ${target_key:0:10}... | Current Key: ${current_key:0:10}..."
+
         if [ -n "$target_ts" ] && [ "$target_ts" = "$current_ts" ] && \
            [ -n "$target_key" ] && [ "$target_key" = "$current_key" ]; then
+            log "  Result: Match (by fields)"
             return 0
         fi
         
+        log "  Result: NO MATCH"
         return 1
     }
 
