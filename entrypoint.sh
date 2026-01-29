@@ -136,6 +136,22 @@ SOCAT_PID=$!
         local tlv="$1"
         [ -z "$tlv" ] && return 1
         log "Applying TLV dataset..."
+        
+        # Wait for wpan0 interface to be ready (max 30 seconds)
+        local retries=0
+        while [ $retries -lt 30 ]; do
+            if ot-ctl -I $OT_THREAD_IF state >/dev/null 2>&1; then
+                break
+            fi
+            sleep 1
+            retries=$((retries + 1))
+        done
+        
+        if [ $retries -eq 30 ]; then
+            log "ERROR: wpan0 interface not ready after 30s"
+            return 1
+        fi
+        
         ot-ctl -I $OT_THREAD_IF thread stop || true
         ot-ctl -I $OT_THREAD_IF ifconfig down || true
         ot-ctl -I $OT_THREAD_IF dataset set active "$tlv"
