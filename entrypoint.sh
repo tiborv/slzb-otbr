@@ -195,6 +195,13 @@ SOCAT_PID=$!
         ot-ctl -I $OT_THREAD_IF dataset commit active
         ot-ctl -I $OT_THREAD_IF ifconfig up
         ot-ctl -I $OT_THREAD_IF thread start
+        
+        # Force BBR and SRP Server
+        log "Enabling SRP Server and Backbone Router..."
+        ot-ctl -I $OT_THREAD_IF srp server enable || true
+        ot-ctl -I $OT_THREAD_IF bbr enable || true
+        ot-ctl -I $OT_THREAD_IF bbr primary || true
+        
         log "TLV applied"
     }
     
