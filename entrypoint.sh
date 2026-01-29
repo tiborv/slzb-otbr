@@ -165,8 +165,19 @@ SOCAT_PID=$!
     export_current_dataset() {
         local output_file="${TLV_EXPORT_PATH:-/data/dataset.hex}"
         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
-        # Check if dataset starts with Error or is empty or "Done"
-        if [ -n "$dataset" ] && [[ "$dataset" != Error* ]] && [ "$dataset" != "Done" ]; then
+        
+        # Check if dataset is empty or "Done"
+        if [ -z "$dataset" ] || [ "$dataset" = "Done" ]; then
+            return
+        fi
+        
+        # Check for Error prefix (POSIX complient)
+        case "$dataset" in
+            Error*) return ;;
+        esac
+        
+        # If we got here, dataset is valid
+        if true; then
             echo "$dataset" > "$output_file"
             
             # Export for mDNS publisher
