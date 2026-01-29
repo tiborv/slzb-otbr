@@ -131,7 +131,7 @@ spec:
         #- name: HA_TOKEN
         #  value: "YOUR_LONG_LIVED_ACCESS_TOKEN"
         
-        # Enable mDNS discovery (requires hostNetwork: true)
+        # Enable mDNS discovery via native Python publisher
         - name: MDNS_PUBLISH
           value: "true"
         
