@@ -249,6 +249,11 @@ SOCAT_PID=$!
     provision_network
     export_current_dataset
 
+    # Ensure variables are exported for subshell
+    export OT_THREAD_IF
+    export OTBR_MDNS_DATA_DIR
+    export TLV_EXPORT_PATH
+
     # Auto extraction & mDNS data update loop
     log "Starting background update loop..."
     while true; do
