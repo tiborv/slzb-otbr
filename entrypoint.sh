@@ -161,10 +161,12 @@ SOCAT_PID=$!
         log "TLV applied"
     }
     
+
     export_current_dataset() {
         local output_file="${TLV_EXPORT_PATH:-/data/dataset.hex}"
         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
-        if [ -n "$dataset" ] && [ "$dataset" != "Error 23: NotFound" ]; then
+        # Check if dataset starts with Error or is empty or "Done"
+        if [ -n "$dataset" ] && [[ "$dataset" != Error* ]] && [ "$dataset" != "Done" ]; then
             echo "$dataset" > "$output_file"
             
             # Export for mDNS publisher
@@ -172,7 +174,7 @@ SOCAT_PID=$!
             mkdir -p "$mdns_dir"
             echo "$dataset" > "${mdns_dir}/dataset.hex"
             ot-ctl -I $OT_THREAD_IF extaddr | head -n 1 > "${mdns_dir}/extaddr.txt"
-            ot-ctl -I $OT_THREAD_IF baid | awk '{print $2}' > "${mdns_dir}/baid.txt"
+            ot-ctl -I $OT_THREAD_IF ba id | head -n 1 > "${mdns_dir}/baid.txt"
         fi
     }
 
