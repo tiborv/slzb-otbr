@@ -138,9 +138,29 @@ SOCAT_PID=$!
     }
 
     dataset_matches() {
-        local target_tlv=$(echo "$1" | tr '[:upper:]' '[:lower:]')
-        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr '[:upper:]' '[:lower:]')
-        [ -n "$target_tlv" ] && [ "$current_tlv" = "$target_tlv" ]
+        local target_tlv=$(echo "$1" | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -d '[:space:]' | tr '[:upper:]' '[:lower:]')
+        
+        [ -z "$target_tlv" ] && return 0
+        
+        # 1. Try exact string match (fast path)
+        if [ "$target_tlv" = "$current_tlv" ]; then
+            return 0
+        fi
+        
+        # 2. Reordering check: Compare Active Timestamp (Tag 0e) and Network Key (Tag 05)
+        local target_ts=$(echo "$target_tlv" | grep -oiP '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
+        local current_ts=$(echo "$current_tlv" | grep -oiP '0e08[0-9a-f]{16}' | tr '[:upper:]' '[:lower:]')
+        
+        local target_key=$(echo "$target_tlv" | grep -oiP '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
+        local current_key=$(echo "$current_tlv" | grep -oiP '0510[0-9a-f]{32}' | tr '[:upper:]' '[:lower:]')
+        
+        if [ -n "$target_ts" ] && [ "$target_ts" = "$current_ts" ] && \
+           [ -n "$target_key" ] && [ "$target_key" = "$current_key" ]; then
+            return 0
+        fi
+        
+        return 1
     }
 
     apply_tlv() {
@@ -175,29 +195,22 @@ SOCAT_PID=$!
 
     export_current_dataset() {
         local output_file="${TLV_EXPORT_PATH:-/data/dataset.hex}"
-        local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
+        local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -d '[:space:]')
         
-        # Check if dataset is empty or "Done"
-        if [ -z "$dataset" ] || [ "$dataset" = "Done" ]; then
+        # Check if dataset is empty or invalid
+        if [ -z "$dataset" ] || [ "$dataset" = "Done" ] || [[ "$dataset" == Error* ]]; then
             return
         fi
         
-        # Check for Error prefix (POSIX complient)
-        case "$dataset" in
-            Error*) return ;;
-        esac
+        # Export for system & mDNS publisher
+        echo "$dataset" > "$output_file"
         
-        # If we got here, dataset is valid
-        if true; then
-            echo "$dataset" > "$output_file"
-            
-            # Export for mDNS publisher
-            local mdns_dir="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
-            mkdir -p "$mdns_dir"
-            echo "$dataset" > "${mdns_dir}/dataset.hex"
-            ot-ctl -I $OT_THREAD_IF extaddr | head -n 1 > "${mdns_dir}/extaddr.txt"
-            ot-ctl -I $OT_THREAD_IF ba id | head -n 1 > "${mdns_dir}/baid.txt"
-        fi
+        local mdns_dir="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
+        mkdir -p "$mdns_dir"
+        
+        echo "$dataset" > "${mdns_dir}/dataset.hex"
+        ot-ctl -I $OT_THREAD_IF extaddr | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/extaddr.txt"
+        ot-ctl -I $OT_THREAD_IF ba id | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/baid.txt"
     }
 
     provision_network() {
