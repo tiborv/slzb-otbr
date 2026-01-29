@@ -63,9 +63,9 @@ spec:
           claimName: otbr-data
 
       # ========================================================
-      # SHARED VOLUME
-      # Allows 'tlv-extractor' to write the dataset file, 
-      # and 'otbr' to read it.
+      # SHARED VOLUME (Optional)
+      # Allows 'otbr' to export the active dataset for other 
+      # containers to read.
       # ========================================================
       - name: shared-data
         emptyDir: {}
@@ -96,38 +96,7 @@ spec:
             port: 8123
 
       # =======================================================================
-      # 2. TLV Extractor Sidecar
-      # -----------------------------------------------------------------------
-      # Watches Home Assistant's internal storage file.
-      # Extracts the Thread TLV and writes it to the shared volume.
-      # =======================================================================
-      - name: tlv-extractor
-        image: ghcr.io/jqlang/jq:latest
-        command:
-          - /bin/sh
-          - -c
-          - |
-            echo "Starting TLV extractor..."
-            # Periodically sync credential from HA storage to shared volume
-            while true; do
-              if [ -f /config/.storage/thread.datasets ]; then
-                # Extract preferred dataset TLV (or first one)
-                jq -r '.data.datasets[] | select(.id == .data.preferred_dataset) | .tlv // .data.datasets[0].tlv // empty' /config/.storage/thread.datasets > /shared/dataset_tmp.hex
-                if [ -s /shared/dataset_tmp.hex ]; then
-                  mv /shared/dataset_tmp.hex /shared/dataset.hex
-                fi
-              fi
-              sleep 60
-            done
-        volumeMounts:
-        - name: data
-          mountPath: /config
-          readOnly: true
-        - name: shared-data
-          mountPath: /shared
-
-      # =======================================================================
-      # 3. SLZB-OTBR Sidecar
+      # 2. SLZB-OTBR Sidecar
       # =======================================================================
       - name: otbr
         image: ghcr.io/tiborv/slzb-otbr:latest
@@ -137,16 +106,30 @@ spec:
             add: ["NET_ADMIN", "SYS_MODULE"]
         env:
         # ----------------------------------------------------
-        # Configuration
+        # Basic Configuration
         # ----------------------------------------------------
         - name: SLZB_HOST
           value: "192.168.1.X"  # <--- REPLACE WITH YOUR IP
         - name: SLZB_PORT
           value: "6638"
         
-        # Read TLV from the file provided by the extractor sidecar
-        - name: TLV_FILE_PATH
-          value: "/shared/dataset.hex"
+        # ----------------------------------------------------
+        # Automated Credential Provisioning
+        # ----------------------------------------------------
+        
+        # Method 1: Native HA Storage File Access (Highest Robustness)
+        # Mount the same volume as HA and let OTBR extract credentials directly.
+        - name: HA_STORAGE_PATH
+          value: "/config/.storage/thread.datasets"
+        - name: AUTO_EXTRACT
+          value: "true"
+        
+        # Method 2: Home Assistant API (Fallback)
+        # Useful if you don't want to mount the .storage directory.
+        #- name: HA_URL
+        #  value: "http://localhost:8123"
+        #- name: HA_TOKEN
+        #  value: "YOUR_LONG_LIVED_ACCESS_TOKEN"
         
         # Enable mDNS discovery (requires hostNetwork: true)
         - name: MDNS_PUBLISH
@@ -157,6 +140,10 @@ spec:
           mountPath: /dev/net/tun
         - name: otbr-data
           mountPath: /data
+        # Mount HA config to allow direct credential extraction
+        - name: data
+          mountPath: /config
+          readOnly: true
         - name: shared-data
           mountPath: /shared
 
