@@ -30,7 +30,7 @@ AUTO_EXTRACT="${AUTO_EXTRACT:-false}"
 AUTO_EXTRACT_INTERVAL="${AUTO_EXTRACT_INTERVAL:-300}"  # 5 minutes
 
 # mDNS publishing (opt-in for border router discovery)
-MDNS_PUBLISH="${MDNS_PUBLISH:-false}"
+MDNS_PUBLISH="${MDNS_PUBLISH:-true}"
 
 log "Configuration:"
 log "  SLZB_HOST: $SLZB_HOST"
@@ -38,9 +38,6 @@ log "  SLZB_PORT: $SLZB_PORT"
 log "  AUTO_EXTRACT: $AUTO_EXTRACT"
 log "  MDNS_PUBLISH: $MDNS_PUBLISH"
 
-# -----------------------------------------------------------------------------
-# Step 2: Start socat bridge to networked radio
-# -----------------------------------------------------------------------------
 # -----------------------------------------------------------------------------
 # Step 2: Start socat bridge to networked radio
 # -----------------------------------------------------------------------------
@@ -90,10 +87,8 @@ SOCAT_PID=$!
         log "mDNS publishing enabled"
     fi
 
-    # Provision Network (Function definition needed here or imported)
+    # Provision Network Logic
     
-    # ... Include provisioning functions here ...
-    # API Extraction
     fetch_tlv_from_ha() {
         if [ -z "$HA_URL" ] || [ -z "$HA_TOKEN" ]; then return 1; fi
         TLV=$(curl -sf -H "Authorization: Bearer $HA_TOKEN" "${HA_URL}/api/thread/dataset/tlvs" 2>/dev/null | jq -r '.[0].dataset // empty')
@@ -127,7 +122,6 @@ SOCAT_PID=$!
         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
         if [ -n "$dataset" ] && [ "$dataset" != "Error 23: NotFound" ]; then
             echo "$dataset" > "$output_file"
-            # log "Exported active dataset"
         fi
     }
 
@@ -149,8 +143,6 @@ SOCAT_PID=$!
         fi
 
         if [ -n "$TLV_FILE_PATH" ] && [ -f "$TLV_FILE_PATH" ]; then
-            # Wait loop for file to exist/be populated?
-            # Retries for 30s
             for k in $(seq 1 15); do
                  TLV=$(cat "$TLV_FILE_PATH" | tr -d '[:space:]')
                  if [ -n "$TLV" ]; then
@@ -193,9 +185,6 @@ SOCAT_PID=$!
             export_current_dataset
         done
     fi
-    # Also support file-based auto-update?
-    # If TLV_FILE_PATH is set, we could watch it too. 
-    # For now, simplistic approach is sufficient.
     
 ) &
 
@@ -205,3 +194,4 @@ SOCAT_PID=$!
 log "Starting OTBR (executing /init)..."
 # exec /init replaces the shell, satisfying s6-overlay's PID 1 requirement
 exec /init
+
