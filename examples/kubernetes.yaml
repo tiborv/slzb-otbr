@@ -1,5 +1,5 @@
-# Kubernetes Sidecar Example for SLZB-OTBR
-# OTBR runs as a sidecar to Home Assistant, communicating via localhost
+# Kubernetes Example for SLZB-OTBR
+# Demonstrates how to run OTBR as a sidecar to Home Assistant with robust TLV extraction.
 
 ---
 apiVersion: v1
@@ -17,7 +17,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: 2Gi
 ---
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -30,28 +30,6 @@ spec:
   resources:
     requests:
       storage: 1Gi
----
-apiVersion: v1
-kind: PersistentVolumeClaim
-metadata:
-  name: matter-server-data
-  namespace: home-assistant
-spec:
-  accessModes:
-    - ReadWriteOnce
-  resources:
-    requests:
-      storage: 1Gi
----
-apiVersion: v1
-kind: Secret
-metadata:
-  name: ha-credentials
-  namespace: home-assistant
-type: Opaque
-stringData:
-  # Home Assistant Long-Lived Access Token (for auto-extraction)
-  token: "YOUR_HA_TOKEN_HERE"
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -71,47 +49,86 @@ spec:
       labels:
         app: home-assistant
     spec:
-      # hostNetwork needed by Home Assistant for device discovery, mDNS, etc.
-      # OTBR sidecar benefits from this but doesn't require it alone
       hostNetwork: true
       dnsPolicy: ClusterFirstWithHostNet
-      
       volumes:
-      - name: ha-data
+      # Persistent Data for HA
+      - name: data
         persistentVolumeClaim:
           claimName: home-assistant-data
+      
+      # Persistent Data for OTBR
       - name: otbr-data
         persistentVolumeClaim:
           claimName: otbr-data
-      - name: matter-data
-        persistentVolumeClaim:
-          claimName: matter-server-data
+
+      # ========================================================
+      # SHARED VOLUME
+      # Allows 'tlv-extractor' to write the dataset file, 
+      # and 'otbr' to read it.
+      # ========================================================
+      - name: shared-data
+        emptyDir: {}
+        
+      # Device nodes (tun needed for OTBR)
       - name: dev-net-tun
         hostPath:
           path: /dev/net/tun
-      
+
       containers:
-      # ===================
-      # Home Assistant
-      # ===================
+      # =======================================================================
+      # 1. Home Assistant Core
+      # =======================================================================
       - name: home-assistant
-        image: homeassistant/home-assistant:2025.1
+        image: homeassistant/home-assistant:stable
         ports:
         - containerPort: 8123
         volumeMounts:
-        - name: ha-data
-          mountPath: /config
+        - mountPath: /config
+          name: data
         livenessProbe:
           httpGet:
             path: /
             port: 8123
-          initialDelaySeconds: 60
-          periodSeconds: 10
-      
-      # ===================
-      # OTBR Sidecar
-      # ===================
-      # Connects to SLZB-MR1 over TCP and exposes REST API on localhost:8081
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8123
+
+      # =======================================================================
+      # 2. TLV Extractor Sidecar
+      # -----------------------------------------------------------------------
+      # Watches Home Assistant's internal storage file.
+      # Extracts the Thread TLV and writes it to the shared volume.
+      # =======================================================================
+      - name: tlv-extractor
+        image: ghcr.io/jqlang/jq:latest
+        command:
+          - /bin/sh
+          - -c
+          - |
+            echo "Starting TLV extractor..."
+            # Periodically sync credential from HA storage to shared volume
+            while true; do
+              if [ -f /config/.storage/thread.datasets ]; then
+                # Extract preferred dataset TLV (or first one)
+                jq -r '.data.datasets[] | select(.id == .data.preferred_dataset) | .tlv // .data.datasets[0].tlv // empty' /config/.storage/thread.datasets > /shared/dataset_tmp.hex
+                if [ -s /shared/dataset_tmp.hex ]; then
+                  mv /shared/dataset_tmp.hex /shared/dataset.hex
+                fi
+              fi
+              sleep 60
+            done
+        volumeMounts:
+        - name: data
+          mountPath: /config
+          readOnly: true
+        - name: shared-data
+          mountPath: /shared
+
+      # =======================================================================
+      # 3. SLZB-OTBR Sidecar
+      # =======================================================================
       - name: otbr
         image: ghcr.io/tiborv/slzb-otbr:latest
         securityContext:
@@ -119,58 +136,34 @@ spec:
           capabilities:
             add: ["NET_ADMIN", "SYS_MODULE"]
         env:
-        # Required: Your SLZB device IP
+        # ----------------------------------------------------
+        # Configuration
+        # ----------------------------------------------------
         - name: SLZB_HOST
-          value: "192.168.1.235"
+          value: "192.168.1.X"  # <--- REPLACE WITH YOUR IP
         - name: SLZB_PORT
           value: "6638"
         
-        # Auto-extract Thread credentials from Home Assistant
-        # HA is accessible at localhost:8123 since we're in the same pod
-        - name: HA_URL
-          value: "http://localhost:8123"
-        - name: HA_TOKEN
-          valueFrom:
-            secretKeyRef:
-              name: ha-credentials
-              key: token
-        - name: AUTO_EXTRACT
+        # Read TLV from the file provided by the extractor sidecar
+        - name: TLV_FILE_PATH
+          value: "/shared/dataset.hex"
+        
+        # Enable mDNS discovery (requires hostNetwork: true)
+        - name: MDNS_PUBLISH
           value: "true"
         
-        # OTBR settings
-        - name: OT_THREAD_IF
-          value: "wpan0"
-        - name: OT_REST_LISTEN_PORT
-          value: "8081"
-        
+        volumeMounts:
+        - name: dev-net-tun
+          mountPath: /dev/net/tun
+        - name: otbr-data
+          mountPath: /data
+        - name: shared-data
+          mountPath: /shared
+
         ports:
         - containerPort: 8081
           name: otbr-rest
-        
-        volumeMounts:
-        - name: otbr-data
-          mountPath: /data
-        - name: dev-net-tun
-          mountPath: /dev/net/tun
-      
-      # ===================
-      # Matter Server Sidecar (Optional)
-      # ===================
-      - name: matter-server
-        image: ghcr.io/home-assistant-libs/python-matter-server:stable
-        args:
-          - '--storage-path'
-          - /data
-          - '--paa-root-cert-dir'
-          - /data/credentials
-          - '--log-level'
-          - info
-        ports:
-        - containerPort: 5580
-          name: matter-ws
-        volumeMounts:
-        - name: matter-data
-          mountPath: /data
+
 ---
 apiVersion: v1
 kind: Service

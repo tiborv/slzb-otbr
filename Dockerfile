@@ -17,6 +17,10 @@ RUN apt-get update && \
         socat \
         curl \
         jq \
+        netcat-openbsd \
+        iproute2 \
+        avahi-daemon \
+        avahi-utils \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy entrypoint script

@@ -57,17 +57,32 @@ jobs:
           platforms: ${{ matrix.platform }}
           build-args: |
             BASE_IMAGE=openthread/border-router@${{ matrix.digest }}
-          push: ${{ github.event_name != 'pull_request' }}
+          # Step 1: Build for testing (load into docker, don't push yet)
+          load: ${{ matrix.platform == 'linux/amd64' }} 
+          push: false
+          tags: slzb-otbr:test
+          provenance: false
+          
+      - name: Test dependencies
+        if: matrix.platform == 'linux/amd64'
+        run: |
+          docker run --rm --entrypoint /test-deps.sh slzb-otbr:test
+
+      - name: Build and push (per-arch)
+        # Only push if it's not a PR and (implied) tests passed
+        if: github.event_name != 'pull_request'
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          build-args: |
+            BASE_IMAGE=openthread/border-router@${{ matrix.digest }}
+          push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.arch.outputs.suffix }}
           cache-from: type=gha,scope=${{ matrix.platform }}
           cache-to: type=gha,mode=max,scope=${{ matrix.platform }}
           provenance: false
-          load: ${{ matrix.platform == 'linux/amd64' }}  # Load for testing on amd64 runner
 
-      - name: Test dependencies
-        if: matrix.platform == 'linux/amd64'
-        run: |
-          docker run --rm --entrypoint /test-deps.sh ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.arch.outputs.suffix }}
 
   # Create multi-arch manifest after all arch builds complete
   manifest:
