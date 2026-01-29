@@ -138,9 +138,9 @@ SOCAT_PID=$!
     }
 
     dataset_matches() {
-        local target_tlv="$1"
-        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
-        [ "$current_tlv" = "$target_tlv" ]
+        local target_tlv=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+        local current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr '[:upper:]' '[:lower:]')
+        [ -n "$target_tlv" ] && [ "$current_tlv" = "$target_tlv" ]
     }
 
     apply_tlv() {
@@ -293,7 +293,7 @@ SOCAT_PID=$!
         sleep 15
     done
     
-) &
+) >/tmp/entrypoint_loop.log 2>&1 &
 
 # -----------------------------------------------------------------------------
 # Step 5: Start mDNS Publisher
