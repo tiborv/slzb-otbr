@@ -1,0 +1,85 @@
+# Docker Compose example for SLZB-OTBR (Sidecar Pattern)
+# OTBR runs alongside Home Assistant, communicating via localhost
+# Run with: docker compose up -d
+
+services:
+  # ===================
+  # Home Assistant
+  # ===================
+  home-assistant:
+    image: homeassistant/home-assistant:2025.1
+    container_name: home-assistant
+    # network_mode: host is common for HA but not required for OTBR sidecar
+    # network_mode: host
+    ports:
+      - "8123:8123"
+    volumes:
+      - ha-config:/config
+    restart: unless-stopped
+
+  # ===================
+  # OTBR Sidecar
+  # ===================
+  otbr:
+    build: .
+    # Or use pre-built image:
+    # image: ghcr.io/tiborv/slzb-otbr:latest
+    container_name: slzb-otbr
+    
+    # Security: Try NET_ADMIN first; use privileged if it fails
+    # privileged: true
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - /dev/net/tun:/dev/net/tun
+    
+    # network_mode: host is NOT required for sidecar pattern
+    # Communication with HA is via shared Docker network
+    network_mode: "service:home-assistant"  # Share network namespace with HA
+    
+    environment:
+      # Required: IP of your SLZB device
+      SLZB_HOST: "192.168.1.235"
+      SLZB_PORT: "6638"
+      
+      # Auto-extract from HA (localhost since we share network namespace)
+      HA_URL: "http://localhost:8123"
+      HA_TOKEN: "${HA_TOKEN}"  # Set in .env file
+      AUTO_EXTRACT: "true"
+      
+      # Or use direct TLV injection
+      # THREAD_DATASET_TLV: "0e080000000000010000..."
+      
+      # OTBR settings
+      OT_THREAD_IF: "wpan0"
+      OT_REST_LISTEN_PORT: "8081"
+    volumes:
+      - otbr-data:/data
+    depends_on:
+      - home-assistant
+    restart: unless-stopped
+
+  # ===================
+  # Matter Server Sidecar (Optional)
+  # ===================
+  matter-server:
+    image: ghcr.io/home-assistant-libs/python-matter-server:stable
+    container_name: matter-server
+    network_mode: "service:home-assistant"  # Share network namespace with HA
+    command:
+      - --storage-path
+      - /data
+      - --paa-root-cert-dir
+      - /data/credentials
+      - --log-level
+      - info
+    volumes:
+      - matter-data:/data
+    depends_on:
+      - home-assistant
+    restart: unless-stopped
+
+volumes:
+  ha-config:
+  otbr-data:
+  matter-data:
