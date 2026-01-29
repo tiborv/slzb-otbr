@@ -67,7 +67,7 @@ jobs:
       - name: Test dependencies
         if: matrix.platform == 'linux/amd64'
         run: |
-          docker run --rm ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.arch.outputs.suffix }} /test-deps.sh
+          docker run --rm --entrypoint /test-deps.sh ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.arch.outputs.suffix }}
 
   # Create multi-arch manifest after all arch builds complete
   manifest:
