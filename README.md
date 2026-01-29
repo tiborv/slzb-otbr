@@ -348,6 +348,14 @@ GET /api/thread/datasets
 | `SLZB_PORT` | `6638` | TCP port of the radio |
 | `BAUD_RATE` | `460800` | RCP baud rate |
 
+### Border Router Discovery
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MDNS_PUBLISH` | `false` | Enable mDNS advertisement for border router discovery |
+
+> **Note:** When `MDNS_PUBLISH=true`, this OTBR will advertise itself via mDNS (`_meshcop._udp`), allowing other border routers and Thread-aware apps (Google Home, Apple Home) to discover it. Requires `network_mode: host` for mDNS to work properly.
+
 ### OTBR Settings
 
 | Variable | Default | Description |

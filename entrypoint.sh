@@ -29,10 +29,14 @@ BAUD_RATE="${BAUD_RATE:-460800}"
 AUTO_EXTRACT="${AUTO_EXTRACT:-false}"
 AUTO_EXTRACT_INTERVAL="${AUTO_EXTRACT_INTERVAL:-300}"  # 5 minutes
 
+# mDNS publishing (opt-in for border router discovery)
+MDNS_PUBLISH="${MDNS_PUBLISH:-false}"
+
 log "Configuration:"
 log "  SLZB_HOST: $SLZB_HOST"
 log "  SLZB_PORT: $SLZB_PORT"
 log "  AUTO_EXTRACT: $AUTO_EXTRACT"
+log "  MDNS_PUBLISH: $MDNS_PUBLISH"
 
 # -----------------------------------------------------------------------------
 # Step 2: Start socat bridge to networked radio
@@ -99,6 +103,17 @@ log "OTBR agent is ready"
 
 # Disable Backbone Router (causes issues in containerized environments)
 ot-ctl -I $OT_THREAD_IF bbr disable || true
+
+# Disable mDNS publishing unless explicitly enabled
+if [ "$MDNS_PUBLISH" != "true" ]; then
+    log "mDNS publishing disabled (set MDNS_PUBLISH=true to enable)"
+    # Stop avahi to prevent border router advertisement
+    pkill -9 avahi-daemon 2>/dev/null || true
+    # Disable the mDNS publisher in otbr-agent
+    ot-ctl -I $OT_THREAD_IF srp server disable || true
+else
+    log "mDNS publishing enabled - border router will be discoverable"
+fi
 
 # -----------------------------------------------------------------------------
 # Step 5: TLV Extraction Functions
