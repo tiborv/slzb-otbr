@@ -4,8 +4,7 @@ set -e
 # =============================================================================
 # SLZB-OTBR Entrypoint
 # Connects to a networked Thread radio (SLZB-MR1, etc.) and runs OpenThread
-# Border Router with flexible credential provisioning including automatic
-# extraction from Home Assistant.
+# Border Router with flexible credential provisioning.
 # =============================================================================
 
 log() {
@@ -39,14 +38,32 @@ log "  AUTO_EXTRACT: $AUTO_EXTRACT"
 log "  MDNS_PUBLISH: $MDNS_PUBLISH"
 
 # -----------------------------------------------------------------------------
-# Step 2: Start socat bridge to networked radio
+# Step 2: Infrastructure Interface Auto-detection
+# -----------------------------------------------------------------------------
+# OTBR needs an infrastructure interface (eth0, wlan0, etc.) for TREL/mDNS.
+# If OT_INFRA_IF is not set, we try to detect the one with the default route.
+if [ -z "$OT_INFRA_IF" ]; then
+    log "Attempting to auto-detect infrastructure interface..."
+    DETECTED_IF=$(ip route | grep default | head -n 1 | awk '{print $5}')
+    if [ -n "$DETECTED_IF" ]; then
+        export OT_INFRA_IF="$DETECTED_IF"
+        log "Auto-detected infrastructure interface: $OT_INFRA_IF"
+    else
+        log "WARNING: Could not auto-detect infrastructure interface. OTBR may fail to start."
+    fi
+else
+    log "Using provided infrastructure interface: $OT_INFRA_IF"
+fi
+
+# -----------------------------------------------------------------------------
+# Step 3: Start socat bridge to networked radio
 # -----------------------------------------------------------------------------
 log "Starting socat bridge to $SLZB_HOST:$SLZB_PORT..."
 socat -d -d pty,raw,echo=0,link=${SERIAL_DEVICE},ignoreeof tcp:${SLZB_HOST}:${SLZB_PORT} &
 SOCAT_PID=$!
 
 # -----------------------------------------------------------------------------
-# Step 3: Configure OTBR (Background Process)
+# Step 4: Configure OTBR (Background Process)
 # -----------------------------------------------------------------------------
 # We run configuration in the background so we can exec /init as PID 1
 (
@@ -75,7 +92,7 @@ SOCAT_PID=$!
     done
     log "OTBR agent is ready"
 
-    # Disable Backbone Router
+    # Disable Backbone Router (often causes issues in Docker/K8s)
     ot-ctl -I $OT_THREAD_IF bbr disable || true
 
     # Handle mDNS
@@ -87,15 +104,26 @@ SOCAT_PID=$!
         log "mDNS publishing enabled"
     fi
 
-    # Provision Network Logic
+    # --- Provisioning Functions ---
     
-    fetch_tlv_from_ha() {
+    fetch_tlv_from_ha_api() {
         if [ -z "$HA_URL" ] || [ -z "$HA_TOKEN" ]; then return 1; fi
         TLV=$(curl -sf -H "Authorization: Bearer $HA_TOKEN" "${HA_URL}/api/thread/dataset/tlvs" 2>/dev/null | jq -r '.[0].dataset // empty')
         if [ -z "$TLV" ]; then
             TLV=$(curl -sf -H "Authorization: Bearer $HA_TOKEN" "${HA_URL}/api/thread/datasets" 2>/dev/null | jq -r '.[0].dataset_tlv // empty')
         fi
         echo "$TLV"
+    }
+
+    extract_tlv_from_ha_storage() {
+        local storage_file="${HA_STORAGE_PATH:-/config/.storage/thread.datasets}"
+        if [ ! -f "$storage_file" ]; then return 1; fi
+        # Extract preferred dataset TLV (or first one)
+        local tlv=$(jq -r '.data.preferred_dataset as $pref | .data.datasets[] | select(.id == $pref) | .tlv // empty' "$storage_file" 2>/dev/null)
+        if [ -z "$tlv" ]; then
+            tlv=$(jq -r '.data.datasets[0].tlv // empty' "$storage_file" 2>/dev/null)
+        fi
+        echo "$tlv"
     }
 
     dataset_matches() {
@@ -126,27 +154,38 @@ SOCAT_PID=$!
     }
 
     provision_network() {
+        # Priority 1: Direct TLV via ENV
         if [ -n "$THREAD_DATASET_TLV" ]; then
             log "Provisioning with provided THREAD_DATASET_TLV..."
             apply_tlv "$THREAD_DATASET_TLV"
             return 0
         fi
 
+        # Priority 2: HA API
         if [ -n "$HA_URL" ] && [ -n "$HA_TOKEN" ]; then
-            log "Fetching Thread credentials from Home Assistant..."
-            TLV=$(fetch_tlv_from_ha)
+            log "Fetching Thread credentials from Home Assistant API..."
+            TLV=$(fetch_tlv_from_ha_api)
             if [ -n "$TLV" ]; then
-                log "Provisioning with credentials from Home Assistant..."
+                log "Provisioning with credentials from Home Assistant API..."
                 apply_tlv "$TLV"
                 return 0
             fi
         fi
 
+        # Priority 3: HA Storage File
+        TLV=$(extract_tlv_from_ha_storage)
+        if [ -n "$TLV" ]; then
+            log "Provisioning with credentials from Home Assistant storage file..."
+            apply_tlv "$TLV"
+            return 0
+        fi
+
+        # Priority 4: External TLV File
         if [ -n "$TLV_FILE_PATH" ] && [ -f "$TLV_FILE_PATH" ]; then
             for k in $(seq 1 15); do
                  TLV=$(cat "$TLV_FILE_PATH" | tr -d '[:space:]')
                  if [ -n "$TLV" ]; then
-                    log "Provisioning with TLV from file..."
+                    log "Provisioning with TLV from external file..."
                     apply_tlv "$TLV"
                     return 0
                  fi
@@ -154,6 +193,7 @@ SOCAT_PID=$!
             done
         fi
 
+        # Priority 5: Keep existing
         if ! ot-ctl -I $OT_THREAD_IF dataset active 2>&1 | grep -q "Error 23"; then
             log "Using existing active dataset"
             ot-ctl -I $OT_THREAD_IF ifconfig up
@@ -161,6 +201,7 @@ SOCAT_PID=$!
             return 0
         fi
 
+        # Priority 6: Form new
         log "No credentials found, forming new Thread network..."
         ot-ctl -I $OT_THREAD_IF dataset init new
         ot-ctl -I $OT_THREAD_IF dataset commit active
@@ -173,11 +214,20 @@ SOCAT_PID=$!
     export_current_dataset
 
     # Auto extraction loop
-    if [ "$AUTO_EXTRACT" = "true" ] && [ -n "$HA_URL" ] && [ -n "$HA_TOKEN" ]; then
+    if [ "$AUTO_EXTRACT" = "true" ]; then
         log "Starting auto-extraction loop..."
         while true; do
             sleep "$AUTO_EXTRACT_INTERVAL"
-            NEW_TLV=$(fetch_tlv_from_ha)
+            NEW_TLV=""
+            # Try API first
+            if [ -n "$HA_URL" ] && [ -n "$HA_TOKEN" ]; then
+                NEW_TLV=$(fetch_tlv_from_ha_api)
+            fi
+            # Fallback to storage file
+            if [ -z "$NEW_TLV" ]; then
+                NEW_TLV=$(extract_tlv_from_ha_storage)
+            fi
+
             if [ -n "$NEW_TLV" ] && ! dataset_matches "$NEW_TLV"; then
                 log "Detected credential change in HA, updating..."
                 apply_tlv "$NEW_TLV"
@@ -189,7 +239,7 @@ SOCAT_PID=$!
 ) &
 
 # -----------------------------------------------------------------------------
-# Step 4: Start OTBR (Main Process)
+# Step 5: Start OTBR (Main Process)
 # -----------------------------------------------------------------------------
 log "Starting OTBR (executing /init)..."
 # exec /init replaces the shell, satisfying s6-overlay's PID 1 requirement

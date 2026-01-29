@@ -44,11 +44,13 @@ RUN chmod +x /test-deps.sh
 #
 # Optional (Thread network credentials):
 #   THREAD_DATASET_TLV - Hex-encoded Thread dataset TLV (highest priority)
-#   HA_URL            - Home Assistant URL to fetch credentials from
+#   HA_URL            - Home Assistant URL to fetch credentials from API
 #   HA_TOKEN          - Home Assistant Long-Lived Access Token
+#   HA_STORAGE_PATH   - Path to HA .storage/thread.datasets (default: /config/.storage/thread.datasets)
 #
 # Optional (OTBR configuration):
 #   OT_THREAD_IF      - Thread interface name (default: wpan0)
+#   OT_INFRA_IF       - Backhaul interface (detected automatically if not set)
 #   OT_LOG_LEVEL      - Log level 1-7 (default: 5)
 #   OT_REST_LISTEN_PORT - REST API port (default: 8081)
 # =============================================================================
@@ -61,12 +63,14 @@ ENV BAUD_RATE="460800"
 ENV THREAD_DATASET_TLV=""
 ENV HA_URL=""
 ENV HA_TOKEN=""
+ENV HA_STORAGE_PATH="/config/.storage/thread.datasets"
 ENV TLV_FILE_PATH=""
 ENV TLV_EXPORT_PATH="/data/dataset.hex"
 ENV AUTO_EXTRACT="false"
 ENV AUTO_EXTRACT_INTERVAL="300"
 
 ENV OT_THREAD_IF="wpan0"
+ENV OT_INFRA_IF=""
 ENV OT_LOG_LEVEL="5"
 ENV OT_REST_LISTEN_ADDR="0.0.0.0"
 ENV OT_REST_LISTEN_PORT="8081"

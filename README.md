@@ -16,9 +16,10 @@ This image is designed for **SLZB MR-series** devices from [SMLight](https://sml
 ## Features
 
 - 🔌 **Networked Radio Support**: Connects to TCP-based Thread radios via socat (no USB passthrough)
-- 🔐 **Flexible Credentials**: TLV injection, Home Assistant API fetch, file-based, or new network
-- 🔄 **Auto-Extraction**: Automatically syncs credentials from Home Assistant
+- 🔐 **Flexible Credentials**: TLV injection, Home Assistant API, direct HA storage file access, or new network
+- 🔄 **Auto-Extraction**: Automatically syncs credentials from Home Assistant (API or File)
 - 🏠 **HA Ready**: Exposes REST API for Home Assistant Thread integration
+- 📡 **Networking Smart**: Auto-detects backhaul interface for zero-config TREL and mDNS
 - 📦 **Single Container**: All-in-one solution with socat bridge built-in
 
 ---
@@ -99,9 +100,10 @@ If you have existing Thread devices connected to:
 
 ### How to Get Your TLV
 
-| Source | How to Export |
-|--------|---------------|
-| **Home Assistant** | Settings → Devices → Thread → ⋮ → Export credentials |
+| Source | How to Export / Access |
+|--------|------------------------|
+| **Home Assistant (API)** | Settings → Devices → Thread → ⋮ → Export credentials |
+| **Home Assistant (File)** | Mount `/config/.storage/thread.datasets` directly |
 | **Google Home** | Use the Thread Credentials API or Android debug tools |
 | **Apple Home** | Share via "Add Thread Network" in Home app |
 | **Existing OTBR** | `ot-ctl dataset active -x` |
@@ -327,7 +329,8 @@ spec:
 |----------|-------------|
 | `THREAD_DATASET_TLV` | Direct hex TLV (highest priority) |
 | `HA_URL` + `HA_TOKEN` | Fetch from Home Assistant API |
-| `TLV_FILE_PATH` | Read TLV from a file |
+| `HA_STORAGE_PATH` | Read from HA storage file (default: `/config/.storage/thread.datasets`) |
+| `TLV_FILE_PATH` | Read TLV from an external file |
 | *(none)* | Use existing or form new network |
 
 ### Auto-Extraction from Home Assistant
@@ -392,6 +395,7 @@ GET /api/thread/datasets
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `OT_THREAD_IF` | `wpan0` | Thread interface name |
+| `OT_INFRA_IF` | *(auto)* | Backhaul interface (detected automatically) |
 | `OT_LOG_LEVEL` | `5` | Log verbosity (1-7) |
 | `OT_REST_LISTEN_PORT` | `8081` | REST API port |
 
