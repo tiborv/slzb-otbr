@@ -28,7 +28,7 @@ This image is designed for **SLZB MR-series** devices from [SMLight](https://sml
 
 **By default, this OTBR is hidden from other border routers and Thread-aware apps.**
 
-Thread devices can connect to multiple border routers for redundancy. For this to work, border routers must discover each other via **mDNS** (multicast DNS). This image has mDNS publishing **disabled by default** to prevent conflicts when running as a secondary OTBR.
+Thread devices can connect to multiple border routers for redundancy. For this to work, border routers must discover each other via **mDNS** (multicast DNS). This image includes a **custom Python mDNS publisher** that works reliably in Docker/Kubernetes environments where native Avahi often fails.
 
 ### What happens without `MDNS_PUBLISH=true`?
 
@@ -51,7 +51,7 @@ environment:
   MDNS_PUBLISH: "true"  # Enable border router discovery
 ```
 
-> **Requires `network_mode: host`** for mDNS multicast to reach your LAN.
+> **How it works:** This launches a lightweight Python script that manually broadcasts the `_meshcop._udp` service, bypassing the need for a system-level Avahi daemon. This solves common "Split Brain" issues and mDNS conflicts in `hostNetwork` environments.
 
 ---
 
@@ -386,9 +386,9 @@ GET /api/thread/datasets
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MDNS_PUBLISH` | `false` | Enable mDNS advertisement for border router discovery |
+| `MDNS_PUBLISH` | `false` | Enable mDNS discovery via Python publisher (replaces Avahi) |
 
-> **Note:** When `MDNS_PUBLISH=true`, this OTBR will advertise itself via mDNS (`_meshcop._udp`), allowing other border routers and Thread-aware apps (Google Home, Apple Home) to discover it. Requires `network_mode: host` for mDNS to work properly.
+> **Note:** When `MDNS_PUBLISH=true`, this OTBR will advertise itself using a built-in Python script. This is more reliable than native Avahi in containerized environments.
 
 ### OTBR Settings
 
