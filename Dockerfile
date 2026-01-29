@@ -21,7 +21,14 @@ RUN apt-get update && \
         iproute2 \
         avahi-daemon \
         avahi-utils \
-    && rm -rf /var/lib/apt/lists/*
+        python3 \
+        python3-pip \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install zeroconf --break-system-packages
+
+# Copy scripts
+COPY scripts/ /usr/local/bin/
+RUN chmod +x /usr/local/bin/mdns_publisher.py
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh

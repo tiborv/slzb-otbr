@@ -166,6 +166,13 @@ SOCAT_PID=$!
         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1)
         if [ -n "$dataset" ] && [ "$dataset" != "Error 23: NotFound" ]; then
             echo "$dataset" > "$output_file"
+            
+            # Export for mDNS publisher
+            local mdns_dir="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
+            mkdir -p "$mdns_dir"
+            echo "$dataset" > "${mdns_dir}/dataset.hex"
+            ot-ctl -I $OT_THREAD_IF extaddr | head -n 1 > "${mdns_dir}/extaddr.txt"
+            ot-ctl -I $OT_THREAD_IF baid | awk '{print $2}' > "${mdns_dir}/baid.txt"
         fi
     }
 
@@ -229,11 +236,11 @@ SOCAT_PID=$!
     provision_network
     export_current_dataset
 
-    # Auto extraction loop
-    if [ "$AUTO_EXTRACT" = "true" ]; then
-        log "Starting auto-extraction loop..."
-        while true; do
-            sleep "$AUTO_EXTRACT_INTERVAL"
+    # Auto extraction & mDNS data update loop
+    log "Starting background update loop..."
+    while true; do
+        # 1. Check for HA updates (Auto Extract)
+        if [ "$AUTO_EXTRACT" = "true" ]; then
             NEW_TLV=""
             # Try API first
             if [ -n "$HA_URL" ] && [ -n "$HA_TOKEN" ]; then
@@ -248,27 +255,34 @@ SOCAT_PID=$!
                 log "Detected credential change in HA, updating..."
                 apply_tlv "$NEW_TLV"
             fi
-            export_current_dataset
-        done
-    fi
+        fi
+        
+        # 2. Always export current data for mDNS publisher
+        export_current_dataset
+        
+        # Sleep interval (use shorter interval for mDNS responsiveness)
+        sleep 15
+    done
     
 ) &
 
 # -----------------------------------------------------------------------------
-# Step 5: Start Avahi mDNS daemon (TEMPORARILY DISABLED FOR TESTING)
+# Step 5: Start mDNS Publisher
 # -----------------------------------------------------------------------------
-# Avahi must be started before OTBR to enable .local hostname resolution
-# This is critical for Matter commissioning which relies on mDNS
-# DISABLED: Testing if Avahi interferes with Matter SDK's built-in mDNS
-# log "Starting Avahi mDNS daemon..."
-# mkdir -p /var/run/avahi-daemon
-# if avahi-daemon --daemonize --no-chroot 2>&1 | tee /tmp/avahi.log; then
-#     log "Avahi daemon started successfully"
-#     sleep 1  # Give Avahi time to initialize
-# else
-#     log "WARNING: Avahi failed to start (may already be running on host)"
-#     log "mDNS hostname resolution may not work in this container"
-# fi
+if [ "$MDNS_PUBLISH" != "true" ]; then
+    log "mDNS publishing disabled"
+    pkill -9 avahi-daemon 2>/dev/null || true
+    ot-ctl -I $OT_THREAD_IF srp server disable || true
+else
+    log "Starting Python mDNS publisher..."
+    # Disable native Avahi to avoid conflicts/issues
+    pkill -9 avahi-daemon 2>/dev/null || true
+    
+    # Start Python publisher
+    export OTBR_MDNS_DATA_DIR="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
+    mkdir -p "$OTBR_MDNS_DATA_DIR"
+    /usr/local/bin/mdns_publisher.py &
+fi
 
 # -----------------------------------------------------------------------------
 # Step 6: Start OTBR (Main Process)
