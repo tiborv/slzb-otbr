@@ -379,10 +379,7 @@ class DiscoveryFixer:
             
             # 3. Injection! (Only if we found VERIFIED candidate IPs)
             if not info.addresses and candidate_ips:
-                # Use a unique server name for our proxy records to avoid 
-                # conflicts with the device's own (missing) AAAA records.
-                proxy_server = f"otbr-proxy-{target_mac}.local."
-                logger.info(f"Injecting verified IPs for {name} via {proxy_server}: {candidate_ips}")
+                logger.info(f"Injecting verified IPs for {name} (Server: {info.server}): {candidate_ips}")
                 
                 addr_bytes = []
                 for ip in candidate_ips:
@@ -392,7 +389,6 @@ class DiscoveryFixer:
                     except:
                         pass
                 
-                logger.info(f"DEBUG: addr_bytes len={len(addr_bytes)} content={[b.hex() for b in addr_bytes]}")
                 if not addr_bytes:
                     return
 
@@ -402,17 +398,12 @@ class DiscoveryFixer:
                     addresses=addr_bytes,
                     port=info.port,
                     properties=info.properties,
-                    server=proxy_server,
+                    server=info.server,
                 )
                 
                 try:
-                    # We unregister our own previous version if it exists to be clean
-                    if name in self.known_services:
-                        try:
-                            self.zeroconf.unregister_service(self.known_services[name])
-                        except:
-                            pass
-                    
+                    # cooperating_responders=True allows us to publish even if 
+                    # the device is already advertising (with 0 IPs).
                     self.zeroconf.register_service(new_info, cooperating_responders=True)
                     self.known_services[name] = new_info
                 except Exception as e:
