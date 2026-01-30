@@ -296,27 +296,32 @@ def get_thread_data():
     # Check Child Table
     child_table = run_command("ot-ctl child table")
     for line in child_table.splitlines():
-        # | ID  | RLOC16 | ... | Extended MAC     |
+        if "|" not in line or "RLOC16" in line:
+            continue
         parts = line.split("|")
-        if len(parts) >= 14:
+        # | ID  | RLOC16 | ... (11 more) ... | Extended MAC     |
+        if len(parts) >= 15:
             try:
-                # Typically index 2 is RLOC16, 14 is Extended MAC
                 rval = parts[2].strip().replace("0x", "")
                 mval = parts[14].strip().lower()
-                mac_rloc[mval] = rval
+                if len(mval) == 16:
+                    mac_rloc[mval] = rval
             except:
                 pass
 
     # Check Neighbor Table (for Routers)
     neighbor_table = run_command("ot-ctl neighbor table")
     for line in neighbor_table.splitlines():
-        # | Role | RLOC16 | ... | Extended MAC     |
+        if "|" not in line or "RLOC16" in line:
+            continue
         parts = line.split("|")
-        if len(parts) >= 10:
+        # | Role | RLOC16 | ... (7 more) ... | Extended MAC     | Version |
+        if len(parts) >= 11:
             try:
                 rval = parts[2].strip().replace("0x", "")
                 mval = parts[10].strip().lower()
-                mac_rloc[mval] = rval
+                if len(mval) == 16:
+                    mac_rloc[mval] = rval
             except:
                 pass
 
