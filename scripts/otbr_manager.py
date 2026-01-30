@@ -275,10 +275,15 @@ def get_thread_ips():
             ip = parts[0]
             rloc = parts[1]
             
-            # Filter out transient/unreachable states
-            if "retry" in line or rloc == "fffe":
-                continue
-                
+            # We used to filter 'retry' but for Sleepy End Devices (SEDs),
+            # the cache might show retry while the device is actually reachable via parent buffering.
+            # Better to inject and let TCP retry than to hang discovery indefinitely.
+            if rloc == "fffe" and "retry" not in line:
+                 # fffe without retry usually means child/detached but valid? 
+                 # Actually fffe means "No RLOC". 
+                 # But if we have an IP, let's try it.
+                 pass
+
             if ":" in ip and not ip.startswith("fe80"):
                 ips.add(ip)
     
