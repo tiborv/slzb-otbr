@@ -258,80 +258,67 @@ def sync_omr_routes():
 # Discovery Fixer (Injection)
 # -------------------------------------------------------------------------
 
-def get_thread_ips():
-    """Fetch all known Thread Global IPs from eidcache."""
-    # We want IPs that are likely the devices.
-    # ot-ctl eidcache format:
-    # fd01:... 8c00 cache ...
-    # We filter for our Mesh Prefix (fd01...) and valid RLOCs (not fffe for now?)
-    # actually fffe might be arguably useful if it was recently seen, but usually means lookup needed.
-    # Let's trust anything in simple cache or snoop state.
+def get_thread_data():
+    """Fetch routing and association data from Thread."""
+    # Mapping of RLOC -> [IPs]
+    rloc_ips = {}
     
-    ips = set()
+    # 1. Parse eidcache
     output = run_command("ot-ctl eidcache")
     for line in output.splitlines():
+        # format: <ip> <rloc> ...
         parts = line.split()
         if len(parts) >= 2:
             ip = parts[0]
             rloc = parts[1]
-            
-            # We used to filter 'retry' but for Sleepy End Devices (SEDs),
-            # the cache might show retry while the device is actually reachable via parent buffering.
-            # Better to inject and let TCP retry than to hang discovery indefinitely.
-            if rloc == "fffe" and "retry" not in line:
-                 # fffe without retry usually means child/detached but valid? 
-                 # Actually fffe means "No RLOC". 
-                 # But if we have an IP, let's try it.
-                 pass
-
             if ":" in ip and not ip.startswith("fe80"):
-                ips.add(ip)
+                if rloc not in rloc_ips:
+                    rloc_ips[rloc] = []
+                rloc_ips[rloc].append(ip)
+
+    # 2. MAC to RLOC Mapping
+    mac_rloc = {}
     
-    # Also check Child Table for direct children
+    # Check Child Table
     child_table = run_command("ot-ctl child table")
     for line in child_table.splitlines():
-        # | ID  | RLOC16 | Timeout | ...
-        # We need the ID to get the IP
+        # | ID  | RLOC16 | ... | Extended MAC     |
         parts = line.split("|")
-        if len(parts) > 2:
+        if len(parts) >= 14:
             try:
-                child_id = parts[1].strip()
-                if child_id.isdigit():
-                    # Get IPs for this child
-                    child_ips = run_command(f"ot-ctl child {child_id}")
-                    for ci_line in child_ips.splitlines():
-                        # Look for IPv6 addresses in the child info
-                        # Format varies, usually just listed or "IPv6: ..."
-                        # We accept any valid-looking global IPv6
-                        for token in ci_line.split():
-                            if ":" in token and not token.startswith("fe80") and "/64" not in token:
-                                ips.add(token.strip())
+                # Typically index 2 is RLOC16, 14 is Extended MAC
+                rval = parts[2].strip()
+                mval = parts[14].strip().lower()
+                if rval.startswith("0x"):
+                    mac_rloc[mval] = rval
             except:
                 pass
 
-    # Also check SRP Server (The gold standard if registered)
-    srp_hosts = run_command("ot-ctl srp server host")
-    for line in srp_hosts.splitlines():
-        # Parsing lines like: "host1.default.service.arpa.  dead:beef::1  12345 ..."
-        # OR "fullname ... deleted"
-        if "deleted" in line:
-            continue
-        for token in line.split():
-             if ":" in token and not token.startswith("fe80") and "/64" not in token:
-                 ips.add(token.strip())
+    # Check Neighbor Table (for Routers)
+    neighbor_table = run_command("ot-ctl neighbor table")
+    for line in neighbor_table.splitlines():
+        # | Role | RLOC16 | ... | Extended MAC     |
+        parts = line.split("|")
+        if len(parts) >= 10:
+            try:
+                rval = parts[2].strip()
+                mval = parts[10].strip().lower()
+                if rval.startswith("0x"):
+                    mac_rloc[mval] = rval
+            except:
+                pass
 
-    return list(ips)
+    return rloc_ips, mac_rloc
 
 class DiscoveryFixer:
     def __init__(self, zeroconf):
         self.zeroconf = zeroconf
         self.known_services = {}
-        self.thread_ips = []
+        self.rloc_ips = {}
+        self.mac_rloc = {}
 
     def update_ips(self):
-        self.thread_ips = get_thread_ips()
-        if self.thread_ips:
-            logger.info(f"Known Thread IPs for Injection: {self.thread_ips}")
+        self.rloc_ips, self.mac_rloc = get_thread_data()
 
     def add_service(self, zeroconf, type, name):
         self.check_service(name, type)
@@ -348,46 +335,54 @@ class DiscoveryFixer:
             if not info:
                 return
             
-            # If addresses are empty, we inject!
-            if not info.addresses and self.thread_ips:
-                logger.info(f"Fixing empty addresses for {name} with candidates: {self.thread_ips}")
+            # 1. Try to extract MAC address from 'server' (e.g. 2E278F1D98E1714D.local.)
+            target_mac = None
+            server_name = info.server.lower()
+            if server_name.endswith(".local."):
+                potential_mac = server_name.replace(".local.", "")
+                if len(potential_mac) == 16:
+                    target_mac = potential_mac
+            
+            # 2. Association logic
+            candidate_ips = []
+            if target_mac and target_mac in self.mac_rloc:
+                rloc = self.mac_rloc[target_mac]
+                candidate_ips = self.rloc_ips.get(rloc, [])
+                if candidate_ips:
+                    logger.info(f"Associated service {name} (MAC {target_mac}) to RLOC {rloc} with IPs: {candidate_ips}")
+            
+            # 3. Injection! (Only if we found VERIFIED candidate IPs)
+            if not info.addresses and candidate_ips:
+                logger.info(f"Injecting verified IPs for {name}: {candidate_ips}")
                 
-                # Convert string IPs to bytes
                 addr_bytes = []
-                for ip in self.thread_ips:
+                for ip in candidate_ips:
                     try:
                         addr_bytes.append(socket.inet_pton(socket.AF_INET6, ip))
                     except:
                         pass
                 
-                # Register a PROXY service with the filled addresses
-                # We use the same name. Zeroconf might complain about collision, 
-                # but since we are the local responder provided we set 'server' to local,
-                # we might be able to answer.
-                # Actually, effectively we are "publishing" it as if we own it.
-                
+                if not addr_bytes:
+                    return
+
                 new_info = ServiceInfo(
                     type,
                     name,
                     addresses=addr_bytes,
                     port=info.port,
                     properties=info.properties,
-                    server=info.server, # Keep original server name
+                    server=info.server,
                 )
                 
                 try:
-                    # Allow collision (cooperating with the original announcer)
-                    # Requires zeroconf >= 0.131.0
                     self.zeroconf.register_service(new_info, cooperating_responders=True)
                     self.known_services[name] = new_info
-                    logger.info(f"Injected IPs into {name}")
                 except ServiceNameAlreadyRegistered:
-                    # We presumably own it now, update it just in case logic changed
                     try:
                         self.zeroconf.update_service(new_info)
                         self.known_services[name] = new_info
-                    except Exception as e:
-                        logger.debug(f"Update failed for {name}: {e}")
+                    except:
+                        pass
                 except Exception as e:
                     logger.warning(f"Failed to inject {name}: {e}")
                     
