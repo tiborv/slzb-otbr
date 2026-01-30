@@ -347,14 +347,12 @@ class DiscoveryFixer:
         logger.info(msg + "Associations: " + ", ".join(assoc_list))
 
     def add_service(self, zeroconf, type, name):
-        logger.info(f"EVENT: Service ADDED: {name}")
         self.check_service(name, type)
 
     def remove_service(self, zeroconf, type, name):
         pass
 
     def update_service(self, zeroconf, type, name):
-        logger.info(f"EVENT: Service UPDATED: {name}")
         self.check_service(name, type)
 
     def check_service(self, name, type):
@@ -362,8 +360,6 @@ class DiscoveryFixer:
             info = self.zeroconf.get_service_info(type, name)
             if not info:
                 return
-            
-            logger.info(f"Checking service {name}: addresses={info.addresses}, server={info.server}")
             
             # 1. Try to extract MAC address from 'server' (e.g. 2E278F1D98E1714D.local.)
             target_mac = None
