@@ -273,6 +273,12 @@ def get_thread_ips():
         parts = line.split()
         if len(parts) >= 2:
             ip = parts[0]
+            rloc = parts[1]
+            
+            # Filter out transient/unreachable states
+            if "retry" in line or rloc == "fffe":
+                continue
+                
             if ":" in ip and not ip.startswith("fe80"):
                 ips.add(ip)
     return list(ips)
