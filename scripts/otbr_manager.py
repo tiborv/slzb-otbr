@@ -331,6 +331,13 @@ class DiscoveryFixer:
 
     def update_ips(self):
         self.rloc_ips, self.mac_rloc = get_thread_data()
+        logger.info(f"Thread Data Updated: {len(self.mac_rloc)} MACs, {len(self.rloc_ips)} RLOCs")
+        if "3adfa65141cc61df" in self.mac_rloc:
+            rloc = self.mac_rloc["3adfa65141cc61df"]
+            ips = self.rloc_ips.get(rloc, [])
+            logger.info(f"DEBUG: MAC 3adfa65141cc61df -> RLOC {rloc} -> IPs {ips}")
+        else:
+            logger.info(f"DEBUG: MAC 3adfa65141cc61df NOT found in mapping. MACs: {list(self.mac_rloc.keys())}")
 
     def add_service(self, zeroconf, type, name):
         self.check_service(name, type)
