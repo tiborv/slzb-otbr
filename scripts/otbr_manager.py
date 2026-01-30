@@ -242,16 +242,108 @@ def sync_omr_routes():
             # metric 1 to prioritize over other routes if needed
             run_command(f"ip -6 route add {prefix} dev wpan0 metric 1 2>/dev/null || ip -6 route replace {prefix} dev wpan0 metric 1")
 
+
+# -------------------------------------------------------------------------
+# Discovery Fixer (Injection)
+# -------------------------------------------------------------------------
+
+def get_thread_ips():
+    """Fetch all known Thread Global IPs from eidcache."""
+    # We want IPs that are likely the devices.
+    # ot-ctl eidcache format:
+    # fd01:... 8c00 cache ...
+    # We filter for our Mesh Prefix (fd01...) and valid RLOCs (not fffe for now?)
+    # actually fffe might be arguably useful if it was recently seen, but usually means lookup needed.
+    # Let's trust anything in simple cache or snoop state.
+    
+    ips = set()
+    output = run_command("ot-ctl eidcache")
+    for line in output.splitlines():
+        parts = line.split()
+        if len(parts) >= 2:
+            ip = parts[0]
+            if ":" in ip and not ip.startswith("fe80"):
+                ips.add(ip)
+    return list(ips)
+
+class DiscoveryFixer:
+    def __init__(self, zeroconf):
+        self.zeroconf = zeroconf
+        self.known_services = {}
+        self.thread_ips = []
+
+    def update_ips(self):
+        self.thread_ips = get_thread_ips()
+        if self.thread_ips:
+            logger.info(f"Known Thread IPs for Injection: {self.thread_ips}")
+
+    def add_service(self, zeroconf, type, name):
+        self.check_service(name, type)
+
+    def remove_service(self, zeroconf, type, name):
+        pass
+
+    def update_service(self, zeroconf, type, name):
+        self.check_service(name, type)
+
+    def check_service(self, name, type):
+        try:
+            info = self.zeroconf.get_service_info(type, name)
+            if not info:
+                return
+            
+            # If addresses are empty, we inject!
+            if not info.addresses and self.thread_ips:
+                logger.info(f"Fixing empty addresses for {name} with candidates: {self.thread_ips}")
+                
+                # Convert string IPs to bytes
+                addr_bytes = []
+                for ip in self.thread_ips:
+                    try:
+                        addr_bytes.append(socket.inet_pton(socket.AF_INET6, ip))
+                    except:
+                        pass
+                
+                # Register a PROXY service with the filled addresses
+                # We use the same name. Zeroconf might complain about collision, 
+                # but since we are the local responder provided we set 'server' to local,
+                # we might be able to answer.
+                # Actually, effectively we are "publishing" it as if we own it.
+                
+                new_info = ServiceInfo(
+                    type,
+                    name,
+                    addresses=addr_bytes,
+                    port=info.port,
+                    properties=info.properties,
+                    server=info.server, # Keep original server name
+                )
+                
+                try:
+                    self.zeroconf.register_service(new_info)
+                    self.known_services[name] = new_info
+                    logger.info(f"Injected IPs into {name}")
+                except Exception as e:
+                    logger.warning(f"Failed to inject {name}: {e}")
+                    
+        except Exception as e:
+            logger.error(f"Error checking service {name}: {e}")
+
 # -------------------------------------------------------------------------
 # Main Loop
 # -------------------------------------------------------------------------
 
 def main():
-    logger.info("Starting OTBR Manager (Smart Routing + mDNS)...")
+    logger.info("Starting OTBR Manager (Smart Routing + mDNS + Discovery Fixer)...")
     logger.info(f"Watching directory: {DATA_DIR}")
     
     zeroconf = Zeroconf()
     current_mdns_info = None
+    
+    # Start Discovery Fixer
+    from zeroconf import ServiceBrowser
+    fixer = DiscoveryFixer(zeroconf)
+    browser = ServiceBrowser(zeroconf, "_matterc._udp.local.", fixer)
     
     def cleanup(sig, frame):
         logger.info("Shutting down...")
@@ -265,11 +357,14 @@ def main():
     
     try:
         while True:
-            # 1. Update mDNS
+            # 1. Update mDNS (Border Router)
             current_mdns_info = update_mdns(zeroconf, current_mdns_info)
             
             # 2. Sync Routing
             sync_omr_routes()
+            
+            # 3. Update Thread IPs for Fixer
+            fixer.update_ips()
             
             time.sleep(POLL_INTERVAL)
             
