@@ -361,6 +361,8 @@ class DiscoveryFixer:
             if not info:
                 return
             
+            logger.info(f"Checking service {name}: addresses={info.addresses}, server={info.server}")
+            
             # 1. Try to extract MAC address from 'server' (e.g. 2E278F1D98E1714D.local.)
             target_mac = None
             server_name = info.server.lower()
