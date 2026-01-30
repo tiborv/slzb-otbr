@@ -363,7 +363,8 @@ def main():
     # Start Discovery Fixer
     from zeroconf import ServiceBrowser
     fixer = DiscoveryFixer(zeroconf)
-    browser = ServiceBrowser(zeroconf, "_matterc._udp.local.", fixer)
+    browser_c = ServiceBrowser(zeroconf, "_matterc._udp.local.", fixer)
+    browser_o = ServiceBrowser(zeroconf, "_matter._tcp.local.", fixer)
     
     def cleanup(sig, frame):
         logger.info("Shutting down...")
