@@ -387,10 +387,12 @@ class DiscoveryFixer:
                 addr_bytes = []
                 for ip in candidate_ips:
                     try:
-                        addr_bytes.append(socket.inet_pton(socket.AF_INET6, ip))
+                        b = socket.inet_pton(socket.AF_INET6, ip)
+                        addr_bytes.append(b)
                     except:
                         pass
                 
+                logger.info(f"DEBUG: addr_bytes len={len(addr_bytes)} content={[b.hex() for b in addr_bytes]}")
                 if not addr_bytes:
                     return
 
