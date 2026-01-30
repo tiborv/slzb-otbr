@@ -22,7 +22,7 @@ import re
 
 # Dependencies
 try:
-    from zeroconf import ServiceInfo, Zeroconf, NonUniqueNameException
+    from zeroconf import ServiceInfo, Zeroconf, NonUniqueNameException, ServiceNameAlreadyRegistered
 except ImportError:
     print("Error: zeroconf module not found. Please install it: pip3 install zeroconf")
     sys.exit(1)
@@ -320,9 +320,18 @@ class DiscoveryFixer:
                 )
                 
                 try:
-                    self.zeroconf.register_service(new_info)
+                    # Allow collision (cooperating with the original announcer)
+                    # Requires zeroconf >= 0.131.0
+                    self.zeroconf.register_service(new_info, cooperating_responders=True)
                     self.known_services[name] = new_info
                     logger.info(f"Injected IPs into {name}")
+                except ServiceNameAlreadyRegistered:
+                    # We presumably own it now, update it just in case logic changed
+                    try:
+                        self.zeroconf.update_service(new_info)
+                        self.known_services[name] = new_info
+                    except Exception as e:
+                        logger.debug(f"Update failed for {name}: {e}")
                 except Exception as e:
                     logger.warning(f"Failed to inject {name}: {e}")
                     
