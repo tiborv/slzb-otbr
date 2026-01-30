@@ -112,17 +112,52 @@ SOCAT_PID=$!
     
     setup_omr_routes
     
+    # Setup routes
+    setup_omr_routes() {
+        # Enable forwarding
+        sysctl -w net.ipv6.conf.all.forwarding=1 2>/dev/null || true
+        sysctl -w net.ipv6.conf.wpan0.forwarding=1 2>/dev/null || true
+        
+        # Add routes for all OMR prefixes (Local and Favored)
+        # Parse output carefully, removing \r and non-printable chars
+        ot-ctl -I $OT_THREAD_IF br omrprefix 2>/dev/null | tr -d '\r' | grep -E "^(Local|Favored):" | awk '{print $2}' | while read -r prefix; do
+            # CRITICAL: Do NOT add a default route (::/0) via wpan0. 
+            # This causes a routing loop in the pod as it overrides the host's gateway.
+            if [[ "$prefix" != "::/0" ]] && [[ "$prefix" == *":"* ]]; then
+                log "Ensuring route for OMR prefix: $prefix"
+                ip -6 route add "$prefix" dev wpan0 metric 256 2>/dev/null || true
+            fi
+        done
+    }
+    
     # Refresh routes periodically
     (
         while true; do
-            sleep 60
             setup_omr_routes
+            sleep 60
         done
     ) &
 
+    # Handle mDNS / SRP Infrastructure
+    if [ "$MDNS_PUBLISH" == "true" ]; then
+        log "Starting mDNS infrastructure (D-Bus & Avahi)..."
+        mkdir -p /var/run/dbus
+        rm -f /var/run/dbus/pid
+        dbus-daemon --system --fork 2>/dev/null || true
+        
+        mkdir -p /var/run/avahi-daemon
+        chown avahi:avahi /var/run/avahi-daemon || true
+        avahi-daemon --daemonize --no-chroot || log "WARNING: avahi-daemon failed to start"
+        
+        log "Enabling SRP server for Matter discovery"
+        ot-ctl -I $OT_THREAD_IF srp server enable || true
+    else
+        ot-ctl -I $OT_THREAD_IF srp server disable || true
+    fi
+
     # Simple Provisioning (Env Var only)
     if [ -n "$THREAD_DATASET_TLV" ]; then
-         current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -d '[:space:]')
+         current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | tr -d '\r' | head -n 1 | tr -d '[:space:]')
          if [ -z "$current_tlv" ] || [ "$current_tlv" = "0e080000000000000000" ]; then 
              log "Applying THREAD_DATASET_TLV from environment..."
              ot-ctl -I $OT_THREAD_IF dataset set active "$THREAD_DATASET_TLV"
@@ -136,13 +171,13 @@ SOCAT_PID=$!
 
     # Export dataset for mDNS publisher
     export_dataset() {
-         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | head -n 1 | tr -d '[:space:]')
+         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | tr -d '\r' | head -n 1 | tr -d '[:space:]')
          if [ -n "$dataset" ] && [[ "$dataset" != Error* ]]; then
              local mdns_dir="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
              mkdir -p "$mdns_dir"
              echo "$dataset" > "${mdns_dir}/dataset.hex"
-             ot-ctl -I $OT_THREAD_IF extaddr | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/extaddr.txt"
-             ot-ctl -I $OT_THREAD_IF ba id | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/baid.txt"
+             ot-ctl -I $OT_THREAD_IF extaddr | tr -d '\r' | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/extaddr.txt"
+             ot-ctl -I $OT_THREAD_IF ba id | tr -d '\r' | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/baid.txt"
          fi
     }
     
@@ -158,8 +193,6 @@ SOCAT_PID=$!
 # -----------------------------------------------------------------------------
 if [ "$MDNS_PUBLISH" == "true" ]; then
     log "Starting Python mDNS publisher..."
-    pkill -9 avahi-daemon 2>/dev/null || true
-    
     export OTBR_MDNS_DATA_DIR="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
     mkdir -p "$OTBR_MDNS_DATA_DIR"
     /usr/local/bin/mdns_publisher.py &
