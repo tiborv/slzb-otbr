@@ -60,7 +60,7 @@ check_command "avahi-browse" "mDNS browser tool"
 echo ""
 echo "--- Native mDNS Publisher ---"
 check_command "python3" "Python runtime"
-check_file "/usr/local/bin/mdns_publisher.py" "mDNS publisher script"
+check_file "/usr/local/bin/otbr_manager.py" "OTBR Manager script"
 
 # Check python module
 if python3 -c "import zeroconf" > /dev/null 2>&1; then
