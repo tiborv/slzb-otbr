@@ -106,14 +106,40 @@ SOCAT_PID=$!
     # Disable Backbone Router (often causes issues in Docker/K8s)
     ot-ctl -I $OT_THREAD_IF bbr disable || true
 
-    # Handle mDNS
+    # Handle mDNS / SRP Server for Matter over Thread
     if [ "$MDNS_PUBLISH" != "true" ]; then
         log "mDNS publishing disabled"
         pkill -9 avahi-daemon 2>/dev/null || true
         ot-ctl -I $OT_THREAD_IF srp server disable || true
     else
-        log "mDNS publishing enabled"
+        log "mDNS publishing enabled - enabling SRP server for Matter discovery"
+        # Enable SRP server so Thread devices can register their services
+        ot-ctl -I $OT_THREAD_IF srp server enable || true
+        # Give it a moment to start
+        sleep 2
+        log "SRP server state: $(ot-ctl -I $OT_THREAD_IF srp server state 2>/dev/null | head -1)"
     fi
+
+    # Setup IPv6 routing for Thread OMR prefix
+    # This ensures Matter Server (and other containers) can route to Thread devices
+    setup_omr_routes() {
+        local favored_omr=$(ot-ctl -I $OT_THREAD_IF br omrprefix 2>/dev/null | grep "Favored:" | awk '{print $2}')
+        if [ -n "$favored_omr" ]; then
+            log "Setting up route for OMR prefix: $favored_omr"
+            ip -6 route add "$favored_omr" dev wpan0 metric 256 2>/dev/null || true
+        fi
+    }
+    
+    # Setup routes initially
+    setup_omr_routes
+    
+    # Periodically refresh routes in background (OMR prefix might change)
+    (
+        while true; do
+            sleep 60
+            setup_omr_routes
+        done
+    ) &
 
     # --- Provisioning Functions ---
     
