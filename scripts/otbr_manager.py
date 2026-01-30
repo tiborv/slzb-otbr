@@ -329,22 +329,28 @@ def get_thread_data():
 
     return rloc_ips, mac_rloc
 
+POLL_INTERVAL = 2  # Increased frequency to catch new attachments
+
 class DiscoveryFixer:
     def __init__(self, zeroconf):
         self.zeroconf = zeroconf
+        self.thread_ips = set()
+        self.rloc_ips = {}  # RLOC (str) -> [IP (str)]
+        self.mac_rloc = {}  # MAC (str) -> RLOC (str)
         self.known_services = {}
-        self.rloc_ips = {}
-        self.mac_rloc = {}
+        self.last_thread_state = None
 
     def update_ips(self):
         self.rloc_ips, self.mac_rloc = get_thread_data()
-        msg = f"Thread Data: {len(self.mac_rloc)} MACs, {len(self.rloc_ips)} RLOC-IP groups. "
-        # Log all associations for visibility
-        assoc_list = []
-        for mac, rloc in self.mac_rloc.items():
-            ips = self.rloc_ips.get(rloc, [])
-            assoc_list.append(f"{mac}->{rloc}({len(ips)} IPs)")
-        logger.info(msg + "Associations: " + ", ".join(assoc_list))
+        
+        # Log only if associations changed to keep logs clean
+        # Convert dicts to frozensets of items for comparison
+        current_state = (frozenset(self.mac_rloc.items()), frozenset({k: tuple(v) for k, v in self.rloc_ips.items()}.items()))
+        
+        if current_state != self.last_thread_state:
+            assoc_list = [f"{mac}->{rloc}({len(self.rloc_ips.get(rloc, []))} IPs)" for mac, rloc in self.mac_rloc.items()]
+            logger.info(f"Thread State Changed: {len(self.mac_rloc)} MACs, {len(self.rloc_ips)} RLOC-IP groups. Associations: " + ", ".join(assoc_list))
+            self.last_thread_state = current_state
 
     def add_service(self, zeroconf, type, name):
         self.check_service(name, type)
@@ -379,7 +385,9 @@ class DiscoveryFixer:
             
             # 3. Injection! (Only if we found VERIFIED candidate IPs)
             if not info.addresses and candidate_ips:
-                logger.info(f"Injecting verified IPs for {name} (Server: {info.server}): {candidate_ips}")
+                # Use unique hostname to avoid conflict with device's own AAAA records
+                proxy_server = f"otbr-proxy-{target_mac}.local."
+                logger.info(f"Injecting verified IPs for {name} via {proxy_server}: {candidate_ips}")
                 
                 addr_bytes = []
                 for ip in candidate_ips:
@@ -398,12 +406,16 @@ class DiscoveryFixer:
                     addresses=addr_bytes,
                     port=info.port,
                     properties=info.properties,
-                    server=info.server,
+                    server=proxy_server,
                 )
                 
                 try:
-                    # cooperating_responders=True allows us to publish even if 
-                    # the device is already advertising (with 0 IPs).
+                    # Clean up old proxy if exists
+                    if name in self.known_services:
+                        try:
+                            self.zeroconf.unregister_service(self.known_services[name])
+                        except: pass
+                    
                     self.zeroconf.register_service(new_info, cooperating_responders=True)
                     self.known_services[name] = new_info
                 except Exception as e:
