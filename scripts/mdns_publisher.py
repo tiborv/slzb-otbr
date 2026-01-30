@@ -176,7 +176,7 @@ def main():
                     is_different = True
 
                 if is_different:
-                    logger.info(f"Updating mDNS Service: {service_name} @ {ip_addr}")
+                    logger.info(f"Updating mDNS Service: {service_name} @ {ip_addrs}")
                     if current_info:
                         zeroconf.unregister_service(current_info)
                     
