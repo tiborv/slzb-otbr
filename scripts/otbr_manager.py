@@ -280,7 +280,9 @@ def get_thread_data():
     childip_output = run_command("ot-ctl childip")
     for line in childip_output.splitlines():
         # format: <rloc>: <ip>
-        parts = line.split(":")
+        if ":" not in line:
+            continue
+        parts = line.split(":", 1)
         if len(parts) >= 2:
             rloc = parts[0].strip().replace("0x", "")
             ip = parts[1].strip()
