@@ -270,11 +270,25 @@ def get_thread_data():
         parts = line.split()
         if len(parts) >= 2:
             ip = parts[0]
-            rloc = parts[1]
+            rloc = parts[1].replace("0x", "")
             if ":" in ip and not ip.startswith("fe80"):
                 if rloc not in rloc_ips:
                     rloc_ips[rloc] = []
                 rloc_ips[rloc].append(ip)
+
+    # 1b. Parse childip (for immediate children not in eidcache)
+    childip_output = run_command("ot-ctl childip")
+    for line in childip_output.splitlines():
+        # format: <rloc>: <ip>
+        parts = line.split(":")
+        if len(parts) >= 2:
+            rloc = parts[0].strip().replace("0x", "")
+            ip = parts[1].strip()
+            if ":" in ip and not ip.startswith("fe80"):
+                if rloc not in rloc_ips:
+                    rloc_ips[rloc] = []
+                if ip not in rloc_ips[rloc]:
+                    rloc_ips[rloc].append(ip)
 
     # 2. MAC to RLOC Mapping
     mac_rloc = {}
@@ -287,10 +301,9 @@ def get_thread_data():
         if len(parts) >= 14:
             try:
                 # Typically index 2 is RLOC16, 14 is Extended MAC
-                rval = parts[2].strip()
+                rval = parts[2].strip().replace("0x", "")
                 mval = parts[14].strip().lower()
-                if rval.startswith("0x"):
-                    mac_rloc[mval] = rval
+                mac_rloc[mval] = rval
             except:
                 pass
 
@@ -301,10 +314,9 @@ def get_thread_data():
         parts = line.split("|")
         if len(parts) >= 10:
             try:
-                rval = parts[2].strip()
+                rval = parts[2].strip().replace("0x", "")
                 mval = parts[10].strip().lower()
-                if rval.startswith("0x"):
-                    mac_rloc[mval] = rval
+                mac_rloc[mval] = rval
             except:
                 pass
 
