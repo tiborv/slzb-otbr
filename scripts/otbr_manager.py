@@ -353,15 +353,14 @@ class DiscoveryFixer:
             self.last_thread_state = current_state
 
     def add_service(self, zeroconf, type, name):
-        logger.debug(f"Zeroconf ADD: {name}")
+        logger.info(f"Zeroconf ADD: {name}")
         self.check_service(name, type)
 
     def remove_service(self, zeroconf, type, name):
-        logger.debug(f"Zeroconf REMOVE: {name}")
         pass
 
     def update_service(self, zeroconf, type, name):
-        logger.debug(f"Zeroconf UPDATE: {name}")
+        logger.info(f"Zeroconf UPDATE: {name}")
         self.check_service(name, type)
 
     def check_service(self, name, type):
@@ -369,6 +368,8 @@ class DiscoveryFixer:
             info = self.zeroconf.get_service_info(type, name)
             if not info:
                 return
+            
+            logger.info(f"Checking service {name} ({type})")
             
             # 1. Try to extract MAC address from 'server' (e.g. 2E278F1D98E1714D.local.)
             target_mac = None
