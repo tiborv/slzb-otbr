@@ -29,8 +29,14 @@ except ImportError:
 
 # Configuration
 mDNS_SERVICE_TYPE = "_meshcop._udp.local."
-mDNS_SERVER_NAME = "otbr-server.local."
-mDNS_PORT = 49154
+# Allow user to set valid hostname (must end in .local.)
+_env_hostname = os.getenv("OTBR_HOSTNAME", "otbr-server")
+if not _env_hostname.endswith(".local"):
+     _env_hostname += ".local"
+if not _env_hostname.endswith("."):
+     _env_hostname += "."
+mDNS_SERVER_NAME = _env_hostname
+
 DATA_DIR = os.getenv("OTBR_MDNS_DATA_DIR", "/tmp/otbr-mdns")
 POLL_INTERVAL = 30  # Seconds between routing/mDNS checks
 
@@ -125,6 +131,9 @@ def get_mdns_properties():
         return None
 
 
+    vendor = os.getenv("OTBR_VENDOR", "TiborV")
+    model = os.getenv("OTBR_MODEL", "SLZB-OTBR")
+
     return {
         "nn": nn,
         "xp": xp,
@@ -132,6 +141,8 @@ def get_mdns_properties():
         "xa": xa,
         "id": bid,
         "sb": bytes.fromhex("00000030"),
+        "vn": vendor.encode('utf-8'),
+        "mn": model.encode('utf-8'),
     }
 
 def update_mdns(zeroconf, current_info):
