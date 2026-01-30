@@ -411,19 +411,22 @@ class DiscoveryFixer:
                 if not addr_bytes:
                     return
 
+                # Use the EXACT server name as discovered (Matter can be case-sensitive)
+                server_name = info.server
+                
                 new_info = ServiceInfo(
                     type,
                     name,
                     addresses=addr_bytes,
                     port=info.port,
                     properties=info.properties,
-                    server=info.server,
+                    server=server_name,
                 )
                 
                 try:
-                    # We always attempt to register with cooperating_responders=True
-                    # If we previously registered it, it might still fail, so we try to update.
-                    self.zeroconf.register_service(new_info, cooperating_responders=True)
+                    # Register with cooperating_responders and a reasonable TTL
+                    # Using a TTL of 60s helps HA keep the record if the Thread radio sleeps briefly
+                    self.zeroconf.register_service(new_info, cooperating_responders=True, ttl=60)
                     self.known_services[name] = new_info
                 except ServiceNameAlreadyRegistered:
                     try:
