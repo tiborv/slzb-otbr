@@ -347,12 +347,14 @@ class DiscoveryFixer:
         logger.info(msg + "Associations: " + ", ".join(assoc_list))
 
     def add_service(self, zeroconf, type, name):
+        logger.info(f"EVENT: Service ADDED: {name}")
         self.check_service(name, type)
 
     def remove_service(self, zeroconf, type, name):
         pass
 
     def update_service(self, zeroconf, type, name):
+        logger.info(f"EVENT: Service UPDATED: {name}")
         self.check_service(name, type)
 
     def check_service(self, name, type):
