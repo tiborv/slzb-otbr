@@ -379,7 +379,7 @@ class DiscoveryFixer:
                 if len(potential_mac) == 16:
                     target_mac = potential_mac
             
-            # 2. Association logic
+            # 2. Get verified candidate IPs
             candidate_ips = []
             if target_mac and target_mac in self.mac_rloc:
                 rloc = self.mac_rloc[target_mac]
@@ -387,7 +387,16 @@ class DiscoveryFixer:
                 if candidate_ips:
                     logger.info(f"Associated service {name} (MAC {target_mac}) to RLOC {rloc} with IPs: {candidate_ips}")
             
-            # 3. Injection! (Only if we found VERIFIED candidate IPs)
+            # Fallback: If we couldn't match MAC, but it's a Matter service with 0 IPs,
+            # inject ALL currently verified Thread IPs. Home Assistant will probe them.
+            if not candidate_ips and not info.addresses:
+                all_ips = set()
+                for ips in self.rloc_ips.values():
+                    all_ips.update(ips)
+                candidate_ips = list(all_ips)
+                if candidate_ips:
+                    logger.info(f"Fallback: Injecting all {len(candidate_ips)} verified Thread IPs for unidentified service {name}")
+            
             # 3. Injection! (Only if we found VERIFIED candidate IPs)
             if not info.addresses and candidate_ips:
                 logger.info(f"Injecting verified IPs for {name} (Host: {info.server}): {candidate_ips}")
