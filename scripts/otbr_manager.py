@@ -388,16 +388,14 @@ class DiscoveryFixer:
                     logger.info(f"Associated service {name} (MAC {target_mac}) to RLOC {rloc} with IPs: {candidate_ips}")
             
             # 3. Injection! (Only if we found VERIFIED candidate IPs)
+            # 3. Injection! (Only if we found VERIFIED candidate IPs)
             if not info.addresses and candidate_ips:
-                # Use unique hostname to avoid conflict with device's own AAAA records
-                proxy_server = f"otbr-proxy-{target_mac}.local."
-                logger.info(f"Injecting verified IPs for {name} via {proxy_server}: {candidate_ips}")
+                logger.info(f"Injecting verified IPs for {name} (Host: {info.server}): {candidate_ips}")
                 
                 addr_bytes = []
                 for ip in candidate_ips:
                     try:
-                        b = socket.inet_pton(socket.AF_INET6, ip)
-                        addr_bytes.append(b)
+                        addr_bytes.append(socket.inet_pton(socket.AF_INET6, ip))
                     except:
                         pass
                 
@@ -410,18 +408,20 @@ class DiscoveryFixer:
                     addresses=addr_bytes,
                     port=info.port,
                     properties=info.properties,
-                    server=proxy_server,
+                    server=info.server,
                 )
                 
                 try:
-                    # Clean up old proxy if exists
-                    if name in self.known_services:
-                        try:
-                            self.zeroconf.unregister_service(self.known_services[name])
-                        except: pass
-                    
+                    # We always attempt to register with cooperating_responders=True
+                    # If we previously registered it, it might still fail, so we try to update.
                     self.zeroconf.register_service(new_info, cooperating_responders=True)
                     self.known_services[name] = new_info
+                except ServiceNameAlreadyRegistered:
+                    try:
+                        self.zeroconf.update_service(new_info)
+                        self.known_services[name] = new_info
+                    except:
+                        pass
                 except Exception as e:
                     logger.warning(f"Failed to inject {name}: {e}")
                     
