@@ -415,6 +415,11 @@ def main():
     # Start Discovery Fixer
     from zeroconf import ServiceBrowser
     fixer = DiscoveryFixer(zeroconf)
+    
+    # Pre-populate data
+    logger.info("Pre-populating Thread data for Discovery Fixer...")
+    fixer.update_ips()
+    
     browser_c = ServiceBrowser(zeroconf, "_matterc._udp.local.", fixer)
     browser_o = ServiceBrowser(zeroconf, "_matter._tcp.local.", fixer)
     
