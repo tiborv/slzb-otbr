@@ -29,18 +29,28 @@ DATA_DIR = os.getenv("OTBR_MDNS_DATA_DIR", "/tmp/otbr-mdns")
 logging.basicConfig(level=logging.INFO, format='%(asctime)s [mDNS] %(message)s')
 logger = logging.getLogger("mDNS")
 
-def get_ip():
-    """Get primary IP address of the container"""
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+def get_ip_addresses():
+    """Get IPv6 addresses of the wpan0 interface"""
+    ips = []
     try:
-        # Connect to a public IP to determine primary interface
-        s.connect(('1.1.1.1', 80))
-        IP = s.getsockname()[0]
-    except Exception:
-        IP = '127.0.0.1'
-    finally:
-        s.close()
-    return IP
+        # Try to find wpan0 addresses from /proc/net/if_inet6
+        if os.path.exists("/proc/net/if_inet6"):
+            with open("/proc/net/if_inet6", "r") as f:
+                for line in f:
+                    parts = line.split()
+                    if len(parts) >= 6 and parts[5] == "wpan0":
+                        # Convert hex string to IPv6 format
+                        raw_hex = parts[0]
+                        ipv6 = ":".join(raw_hex[i:i+4] for i in range(0, 32, 4))
+                        # Check if it is a link-local address (starts with fe80)
+                        if not ipv6.lower().startswith("fe80"):
+                             ips.append(ipv6)
+    except Exception as e:
+        logger.error(f"Error getting IPs: {e}")
+    
+    # Fallback/Add IPv4 if needed, but Matter usually prefers IPv6
+    # If no IPv6 found, return empty list or localhost to avoid breaking
+    return ips
 
 def read_file(filename):
     """Read a file from the data directory"""
@@ -137,13 +147,21 @@ def main():
             
             if props:
                 service_name = f"{props['nn']}.{SERVICE_TYPE}"
-                ip_addr = get_ip()
+                ip_addrs = get_ip_addresses()
                 
+                # Convert IPs to bytes
+                addresses_bytes = []
+                for ip in ip_addrs:
+                    try:
+                        addresses_bytes.append(socket.inet_pton(socket.AF_INET6, ip))
+                    except Exception:
+                         pass
+
                 # Check if changed
                 new_info = ServiceInfo(
                     SERVICE_TYPE,
                     service_name,
-                    addresses=[socket.inet_aton(ip_addr)],
+                    addresses=addresses_bytes,
                     port=PORT,
                     properties=props,
                     server=SERVER_NAME,
