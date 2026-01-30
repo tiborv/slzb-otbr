@@ -131,7 +131,7 @@ def get_mdns_properties():
         return None
 
 
-    vendor = os.getenv("OTBR_VENDOR", "TiborV")
+    vendor = os.getenv("OTBR_VENDOR", "OpenThread")
     model = os.getenv("OTBR_MODEL", "SLZB-OTBR")
 
     return {
