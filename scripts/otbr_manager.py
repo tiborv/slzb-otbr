@@ -353,12 +353,15 @@ class DiscoveryFixer:
             self.last_thread_state = current_state
 
     def add_service(self, zeroconf, type, name):
+        logger.debug(f"Zeroconf ADD: {name}")
         self.check_service(name, type)
 
     def remove_service(self, zeroconf, type, name):
+        logger.debug(f"Zeroconf REMOVE: {name}")
         pass
 
     def update_service(self, zeroconf, type, name):
+        logger.debug(f"Zeroconf UPDATE: {name}")
         self.check_service(name, type)
 
     def check_service(self, name, type):
