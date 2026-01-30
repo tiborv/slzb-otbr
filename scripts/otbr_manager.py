@@ -281,6 +281,40 @@ def get_thread_ips():
                 
             if ":" in ip and not ip.startswith("fe80"):
                 ips.add(ip)
+    
+    # Also check Child Table for direct children
+    child_table = run_command("ot-ctl child table")
+    for line in child_table.splitlines():
+        # | ID  | RLOC16 | Timeout | ...
+        # We need the ID to get the IP
+        parts = line.split("|")
+        if len(parts) > 2:
+            try:
+                child_id = parts[1].strip()
+                if child_id.isdigit():
+                    # Get IPs for this child
+                    child_ips = run_command(f"ot-ctl child {child_id}")
+                    for ci_line in child_ips.splitlines():
+                        # Look for IPv6 addresses in the child info
+                        # Format varies, usually just listed or "IPv6: ..."
+                        # We accept any valid-looking global IPv6
+                        for token in ci_line.split():
+                            if ":" in token and not token.startswith("fe80") and "/64" not in token:
+                                ips.add(token.strip())
+            except:
+                pass
+
+    # Also check SRP Server (The gold standard if registered)
+    srp_hosts = run_command("ot-ctl srp server host")
+    for line in srp_hosts.splitlines():
+        # Parsing lines like: "host1.default.service.arpa.  dead:beef::1  12345 ..."
+        # OR "fullname ... deleted"
+        if "deleted" in line:
+            continue
+        for token in line.split():
+             if ":" in token and not token.startswith("fe80") and "/64" not in token:
+                 ips.add(token.strip())
+
     return list(ips)
 
 class DiscoveryFixer:
