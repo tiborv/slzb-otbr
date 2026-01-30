@@ -28,7 +28,7 @@ RUN apt-get update && \
 
 # Copy scripts
 COPY scripts/ /usr/local/bin/
-RUN chmod +x /usr/local/bin/mdns_publisher.py
+RUN chmod +x /usr/local/bin/otbr_manager.py
 
 # Copy entrypoint script
 COPY entrypoint.sh /entrypoint.sh

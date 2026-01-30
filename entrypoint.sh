@@ -2,9 +2,8 @@
 set -e
 
 # =============================================================================
-# SLZB-OTBR Entrypoint
-# Connects to a networked Thread radio (SLZB-MR1, etc.) and runs OpenThread
-# Border Router.
+# SLZB-OTBR Entrypoint (Simplified)
+# Connects to a networked Thread radio (SLZB-MR1, etc.) and runs OTBR.
 # =============================================================================
 
 log() {
@@ -91,71 +90,25 @@ SOCAT_PID=$!
     # Disable Backbone Router (often causes issues in Docker/K8s)
     ot-ctl -I $OT_THREAD_IF bbr disable || true
 
-    # Handle mDNS / SRP
-    if [ "$MDNS_PUBLISH" != "true" ]; then
-        ot-ctl -I $OT_THREAD_IF srp server disable || true
-    else
-        log "Enabling SRP server for Matter discovery"
-        ot-ctl -I $OT_THREAD_IF srp server enable || true
-    fi
-
-    # Setup routes
-    setup_omr_routes() {
-        sysctl -w net.ipv6.conf.all.forwarding=1 2>/dev/null || true
-        sysctl -w net.ipv6.conf.wpan0.forwarding=1 2>/dev/null || true
-        
-        # Add routes for all OMR prefixes (Local and Favored)
-        ot-ctl -I $OT_THREAD_IF br omrprefix 2>/dev/null | grep -E "^(Local|Favored):" | awk '{print $2}' | while read -r prefix; do
-            ip -6 route add "$prefix" dev wpan0 metric 256 2>/dev/null && log "Added route for OMR prefix: $prefix" || true
-        done
-    }
+    # -------------------------------------------------------------------------
+    # System Services (D-Bus / Avahi / SRP)
+    # Required for OTBR Agent's SRP Server
+    # -------------------------------------------------------------------------
+    log "Starting system services (D-Bus & Avahi)..."
+    mkdir -p /var/run/dbus
+    rm -f /var/run/dbus/pid
+    dbus-daemon --system --fork 2>/dev/null || true
     
-    setup_omr_routes
+    mkdir -p /var/run/avahi-daemon
+    chown avahi:avahi /var/run/avahi-daemon || true
+    avahi-daemon --daemonize --no-chroot || log "WARNING: avahi-daemon failed to start"
     
-    # Setup routes
-    setup_omr_routes() {
-        # Enable forwarding
-        sysctl -w net.ipv6.conf.all.forwarding=1 2>/dev/null || true
-        sysctl -w net.ipv6.conf.wpan0.forwarding=1 2>/dev/null || true
-        
-        # Add routes for all OMR prefixes (Local and Favored)
-        # Parse output carefully, removing \r and non-printable chars
-        ot-ctl -I $OT_THREAD_IF br omrprefix 2>/dev/null | tr -d '\r' | grep -E "^(Local|Favored):" | awk '{print $2}' | while read -r prefix; do
-            # CRITICAL: Do NOT add a default route (::/0) via wpan0. 
-            # This causes a routing loop in the pod as it overrides the host's gateway.
-            if [[ "$prefix" != "::/0" ]] && [[ "$prefix" == *":"* ]]; then
-                log "Ensuring route for OMR prefix: $prefix"
-                ip -6 route add "$prefix" dev wpan0 metric 256 2>/dev/null || true
-            fi
-        done
-    }
-    
-    # Refresh routes periodically
-    (
-        while true; do
-            setup_omr_routes
-            sleep 60
-        done
-    ) &
+    # Enable SRP Server
+    ot-ctl -I $OT_THREAD_IF srp server enable || true
 
-    # Handle mDNS / SRP Infrastructure
-    if [ "$MDNS_PUBLISH" == "true" ]; then
-        log "Starting mDNS infrastructure (D-Bus & Avahi)..."
-        mkdir -p /var/run/dbus
-        rm -f /var/run/dbus/pid
-        dbus-daemon --system --fork 2>/dev/null || true
-        
-        mkdir -p /var/run/avahi-daemon
-        chown avahi:avahi /var/run/avahi-daemon || true
-        avahi-daemon --daemonize --no-chroot || log "WARNING: avahi-daemon failed to start"
-        
-        log "Enabling SRP server for Matter discovery"
-        ot-ctl -I $OT_THREAD_IF srp server enable || true
-    else
-        ot-ctl -I $OT_THREAD_IF srp server disable || true
-    fi
-
-    # Simple Provisioning (Env Var only)
+    # -------------------------------------------------------------------------
+    # Thread Provisioning
+    # -------------------------------------------------------------------------
     if [ -n "$THREAD_DATASET_TLV" ]; then
          current_tlv=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | tr -d '\r' | head -n 1 | tr -d '[:space:]')
          if [ -z "$current_tlv" ] || [ "$current_tlv" = "0e080000000000000000" ]; then 
@@ -169,34 +122,13 @@ SOCAT_PID=$!
     ot-ctl -I $OT_THREAD_IF ifconfig up
     ot-ctl -I $OT_THREAD_IF thread start
 
-    # Export dataset for mDNS publisher
-    export_dataset() {
-         local dataset=$(ot-ctl -I $OT_THREAD_IF dataset active -x 2>/dev/null | tr -d '\r' | head -n 1 | tr -d '[:space:]')
-         if [ -n "$dataset" ] && [[ "$dataset" != Error* ]]; then
-             local mdns_dir="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
-             mkdir -p "$mdns_dir"
-             echo "$dataset" > "${mdns_dir}/dataset.hex"
-             ot-ctl -I $OT_THREAD_IF extaddr | tr -d '\r' | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/extaddr.txt"
-             ot-ctl -I $OT_THREAD_IF ba id | tr -d '\r' | head -n 1 | tr -d '[:space:]' > "${mdns_dir}/baid.txt"
-         fi
-    }
-    
-    while true; do
-        export_dataset
-        sleep 15
-    done
-    
-) >/tmp/entrypoint_loop.log 2>&1 &
+    # -------------------------------------------------------------------------
+    # Launch OTBR Manager (Smart Routing + mDNS)
+    # -------------------------------------------------------------------------
+    log "Starting OTBR Manager..."
+    /usr/local/bin/otbr_manager.py &
 
-# -----------------------------------------------------------------------------
-# mDNS Publisher
-# -----------------------------------------------------------------------------
-if [ "$MDNS_PUBLISH" == "true" ]; then
-    log "Starting Python mDNS publisher..."
-    export OTBR_MDNS_DATA_DIR="${OTBR_MDNS_DATA_DIR:-/dev/shm/otbr-mdns}"
-    mkdir -p "$OTBR_MDNS_DATA_DIR"
-    /usr/local/bin/mdns_publisher.py &
-fi
+) >/tmp/entrypoint_loop.log 2>&1 &
 
 # -----------------------------------------------------------------------------
 # Start OTBR
